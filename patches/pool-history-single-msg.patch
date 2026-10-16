@@ -1,0 +1,176 @@
+diff --git a/poolHistory.original.js b/poolHistory.patched.js
+index eb95405..750c2db 100644
+--- a/poolHistory.original.js
++++ b/poolHistory.patched.js
+@@ -4,7 +4,10 @@ import { rulePrefix } from '../lib/common.js';
+ import { ZZZPlugin } from '../lib/plugin.js';
+ import settings from '../lib/settings.js';
+ import fetch from 'node-fetch';
+-const DATA_URL = 'https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json';
++const DATA_URLS = [
++    'https://ghproxy.net/https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json',
++    'https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json'
++];
+ export class PoolHistory extends ZZZPlugin {
+     dataCacheKey;
+     dataCacheExpireKey;
+@@ -169,26 +172,100 @@ export class PoolHistory extends ZZZPlugin {
+         return this.reply(replyMsg);
+     }
+     async queryAllPool() {
+-        const old = await redis.get(this.queryAllPoolMsgCacheKey);
+-        if (old) {
+-            try {
+-                return await this.reply(JSON.parse(old));
++        let progressRes = null;
++        try {
++            progressRes = await this.reply('正在整理绝区零全版本卡池记录，请稍候...', false, { recallMsg: 60 });
++        } catch {
++            // ignore progress notice failure
++        }
++        try {
++            const old = await redis.get(this.queryAllPoolMsgCacheKey);
++            if (old) {
++                try {
++                    if (old.startsWith('{') || old.startsWith('[')) {
++                        redis.del(this.queryAllPoolMsgCacheKey);
++                    } else {
++                        if (progressRes?.message_id) {
++                            try {
++                                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                            } catch {}
++                        }
++                        return await this.reply(old);
++                    }
++                } catch {
++                    redis.del(this.queryAllPoolMsgCacheKey);
++                }
++            }
++            const data = await this.fetchData();
++            if (!data) {
++                if (progressRes?.message_id) {
++                    try {
++                        if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                        else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                    } catch {}
++                }
++                return false;
++            }
++            const versionList = [...new Set(data.map(p => p.version.replace(/(上半|下半)$/u, '')))].sort((a, b) => {
++                const [aMajor, aMinor] = a.split('.').map(Number);
++                const [bMajor, bMinor] = b.split('.').map(Number);
++                if (bMajor !== aMajor) return bMajor - aMajor;
++                return bMinor - aMinor;
++            });
++            const lines = ['【 绝区零全版本卡池记录（时间线逆序）】\n'];
++            for (const v of versionList) {
++                const pools = data.filter(p => p.version.startsWith(v));
++                if (!pools.length) continue;
++                const versionStages = [...new Set(pools.map(p => p.version))].sort((a, b) => {
++                    if (a.includes('下半') && b.includes('上半')) return -1;
++                    if (a.includes('上半') && b.includes('下半')) return 1;
++                    return b.localeCompare(a);
++                });
++                for (const stage of versionStages) {
++                    const stagePools = pools.filter(p => p.version === stage);
++                    const timerDisplay = stagePools[0]?.timer?.replace(/ \d{2}:\d{2}:\d{2}/g, '').trim() || '';
++                    lines.push(`【 v${stage} 】${timerDisplay ? ' ' + timerDisplay : ''}`);
++                    const rolePools = stagePools.filter(p => p.type === '角色');
++                    const weaponPools = stagePools.filter(p => p.type === '武器');
++                    if (rolePools.length > 0) {
++                        const roleStrs = rolePools.map(p => {
++                            const aRoles = Array.isArray(p.a) ? p.a.join('、') : (p.a || '');
++                            return `S-${p.s}${aRoles ? ' | A-' + aRoles : ''}`;
++                        });
++                        lines.push(`◈ 角色：${roleStrs.join('；')}`);
++                    }
++                    if (weaponPools.length > 0) {
++                        const weaponStrs = weaponPools.map(p => {
++                            const aWeapons = Array.isArray(p.a) ? p.a.join('、') : (p.a || '');
++                            return `S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}`;
++                        });
++                        lines.push(`◈ 音擎：${weaponStrs.join('；')}`);
++                    }
++                    lines.push('');
++                }
++            }
++            const msg = lines.join('\n').trim();
++            redis.set(this.queryAllPoolMsgCacheKey, msg, {
++                EX: 7 * 24 * 60 * 60
++            });
++            if (progressRes?.message_id) {
++                try {
++                    if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                    else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                } catch {}
+             }
+-            catch {
+-                redis.del(this.queryAllPoolMsgCacheKey);
++            return await this.reply(msg);
++        } catch (err) {
++            logger.error(`[ZZZ-Plugin] 全卡池记录生成失败: ${err.message || err}`);
++            if (progressRes?.message_id) {
++                try {
++                    if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                    else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                } catch {}
+             }
++            return await this.reply(`查询全卡池记录失败：${err.message || '未知错误'}`);
+         }
+-        const data = await this.fetchData();
+-        if (!data)
+-            return this.reply('卡池历史记录数据获取失败');
+-        const versions = [...new Set(data.map(p => p.version.replace(/(上半|下半)$/u, '')))];
+-        const title = '绝区零全版本卡池记录';
+-        const replyMsg = [title, ...versions.map(v => this.generatePoolMsg(data, v, '')).filter(Boolean).reverse()];
+-        const msg = await common.makeForwardMsg(this.e, replyMsg, title);
+-        redis.set(this.queryAllPoolMsgCacheKey, JSON.stringify(msg), {
+-            EX: 7 * 24 * 60 * 60
+-        });
+-        return this.reply(msg);
+     }
+     async queryVersionPool() {
+         const data = await this.fetchData();
+@@ -261,24 +338,29 @@ export class PoolHistory extends ZZZPlugin {
+             redis.del(this.dataCacheKey);
+         }
+         let rawData;
+-        try {
+-            const response = await fetch(DATA_URL, {
+-                method: 'GET',
+-                headers: { 'Cache-Control': 'no-cache' },
+-                signal: AbortSignal.timeout(6000)
+-            });
+-            if (!response.ok) {
+-                throw new Error('请求失败：' + response.status);
++        let lastErr = null;
++        for (const url of DATA_URLS) {
++            try {
++                const response = await fetch(url, {
++                    method: 'GET',
++                    headers: { 'Cache-Control': 'no-cache' },
++                    signal: AbortSignal.timeout(5000)
++                });
++                if (response.ok) {
++                    rawData = await response.json();
++                    break;
++                }
++            } catch (err) {
++                lastErr = err;
+             }
+-            rawData = await response.json();
+         }
+-        catch (err) {
++        if (!rawData) {
+             const cache = await redis.get(this.dataCacheKey);
+-            logger.error(err);
+             if (cache) {
+                 return JSON.parse(cache);
+             }
+-            return this.reply(`卡池历史记录数据获取失败: ${err.message || err}`);
++            logger.error(`[ZZZ-Plugin] 卡池历史数据获取失败: ${lastErr?.message || lastErr}`);
++            return this.reply(`卡池历史记录数据获取失败: ${lastErr?.message || '网络连接超时'}`);
+         }
+         const data = this.processData(rawData);
+         if (data) {
