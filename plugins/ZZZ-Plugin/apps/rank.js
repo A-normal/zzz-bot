@@ -1,0 +1,818 @@
+import { isUserRankAllowed, isGroupRankAllowed, getUsersInGroupRank, setUserRankAllowed, getUid2QQsMapping, removeUidAllRecord, } from '../lib/rank.js';
+import { getAbyssDataInGroupRank, getDeadlyDataInGroupRank, getVoidFrontBattleDataInGroupRank, getClimbingTowerDataInGroupRank, getHoloBossDataInGroupRank } from '../lib/db.js';
+import { rulePrefix } from '../lib/common.js';
+import { ZZZPlugin } from '../lib/plugin.js';
+import { Deadly } from '../model/deadly.js';
+import { HoloBoss } from '../model/holoBoss.js';
+import settings from '../lib/settings.js';
+import _ from 'lodash';
+export class Rank extends ZZZPlugin {
+    isGroupRankAllowed;
+    quality;
+    scale;
+    constructor() {
+        super({
+            name: '[ZZZ-Plugin]rank',
+            dsc: 'zzz群排名',
+            event: 'message',
+            priority: _.get(settings.getConfig('priority'), 'rank', 70),
+            rule: [
+                {
+                    reg: `${rulePrefix}(式舆防卫战|式舆|深渊|防卫战|防卫)排名$`,
+                    fnc: 'abyssRank'
+                },
+                {
+                    reg: `${rulePrefix}(危局强袭战|危局|强袭|强袭战)排名$`,
+                    fnc: 'deadlyRank'
+                },
+                {
+                    reg: `${rulePrefix}(绝境|(危局|强袭|强袭战|危局强袭战)绝境|绝境(危局|强袭|强袭战|危局强袭战))排名$`,
+                    fnc: 'deadlyHardRank'
+                },
+                {
+                    reg: `${rulePrefix}(拟境湮灭战|拟境|湮灭|湮灭战)排名$`,
+                    fnc: 'holoBossRank'
+                },
+                {
+                    reg: `${rulePrefix}(临界推演|临界|推演)排名$`,
+                    fnc: 'voidFrontBattleRank'
+                },
+                {
+                    reg: `${rulePrefix}(爬塔|鏖战)排名$`,
+                    fnc: 'climbingTowerHelp'
+                },
+                {
+                    reg: `${rulePrefix}(爬塔S1|爬塔s1|拟真鏖战试炼)排名$`,
+                    fnc: 'climbingTowerS1'
+                },
+                {
+                    reg: `${rulePrefix}(爬塔S2|爬塔s2|鏖战试炼末路|鏖战试炼：末路|鏖战试炼:末路)排名$`,
+                    fnc: 'climbingTowerS2'
+                },
+                {
+                    reg: `${rulePrefix}(爬塔S3|爬塔s3|鏖战试炼荣耀|鏖战试炼：荣耀|鏖战试炼:荣耀)排名$`,
+                    fnc: 'climbingTowerS3'
+                },
+                {
+                    reg: `${rulePrefix}(爬塔S4|爬塔s4|鏖战试炼狂澜|鏖战试炼：狂澜|鏖战试炼:狂澜)排名$`,
+                    fnc: 'climbingTowerS4'
+                },
+                {
+                    reg: `${rulePrefix}(显示|展示|开启|打开|on|启用|启动|隐藏|取消显示|关闭|关掉|off|禁用|停止)(式舆防卫战|式舆|深渊|防卫战|防卫|危局强袭战|危局|强袭|强袭战|拟境湮灭战|拟境|湮灭|湮灭战|临界推演|临界|推演|爬塔S1|爬塔S2|爬塔S3|爬塔 s1|爬塔 s2|爬塔 s3|爬塔s1|爬塔s2|爬塔s3)?(群(内)?)?排名$`,
+                    fnc: 'switchRank'
+                }
+            ]
+        });
+        this.isGroupRankAllowed = isGroupRankAllowed;
+        this.quality = 60;
+        this.scale = 0.5;
+    }
+    async abyssRank() {
+        const rank_type = 'ABYSS';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            return this.reply('当前群深渊排名功能已关闭！');
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getAbyssDataInGroupRank(uidInGroupRankFiltered);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => _.get(item, 'result.hadal_ver') === 'v2')
+            .filter(item => {
+            const beginTime = _.get(item, 'result.hadal_info_v2.begin_time');
+            const endTime = _.get(item, 'result.hadal_info_v2.end_time');
+            return currentTimestamp >= beginTime && currentTimestamp <= endTime;
+        })
+            .map(item => {
+            const score = _.get(item, 'result.hadal_info_v2.brief.score', 0);
+            const rating = _.get(item, 'result.hadal_info_v2.brief.rating', 'C');
+            const layers = _.get(item, 'result.hadal_info_v2.fitfh_layer_detail.layer_challenge_info_list', []);
+            let updateTime = 0;
+            for (const layer of layers) {
+                const challengeTime = _.get(layer, 'challenge_time', 0);
+                updateTime = Math.max(updateTime, challengeTime);
+            }
+            if (updateTime === 0) {
+                updateTime = currentTimestamp;
+            }
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    score,
+                    rating,
+                    updateTime
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有式舆防卫战排名，请先 %显示深渊排名，并且用 %深渊 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.score !== b.score.score) {
+                return b.score.score - a.score.score;
+            }
+            if (a.score.rating !== b.score.rating) {
+                const ratingOrder = { 'S+': 5, 'S': 4, 'A': 3, 'B': 2, 'C': 1 };
+                return (ratingOrder[b.score.rating] ?? 0) - (ratingOrder[a.score.rating] ?? 0);
+            }
+            return a.score.updateTime - b.score.updateTime;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/abyss/index.html', finalData, this);
+    }
+    async deadlyRank() {
+        const rank_type = 'DEADLY';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群危局强袭战排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getDeadlyDataInGroupRank(uidInGroupRankFiltered);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => {
+            const startTimeObj = _.get(item, 'result.start_time');
+            const endTimeObj = _.get(item, 'result.end_time');
+            const startTime = new Date(startTimeObj.year, startTimeObj.month - 1, startTimeObj.day, startTimeObj.hour, startTimeObj.minute, startTimeObj.second).getTime() / 1000;
+            const endTime = new Date(endTimeObj.year, endTimeObj.month - 1, endTimeObj.day, endTimeObj.hour, endTimeObj.minute, endTimeObj.second).getTime() / 1000;
+            return currentTimestamp >= startTime && currentTimestamp <= endTime;
+        })
+            .filter(item => _.get(item, 'result.has_data') === true)
+            .map(item => {
+            const totalScore = _.get(item, 'result.total_score', 0);
+            const totalStar = _.get(item, 'result.total_star', 0);
+            const challenges = _.get(item, 'result.list');
+            let updateTime = 0;
+            for (const challenge of challenges) {
+                const { year, month, day, hour, minute, second } = challenge.challenge_time;
+                const challengeTime = new Date(year, month - 1, day, hour, minute, second).getTime() / 1000;
+                updateTime = Math.max(updateTime, challengeTime);
+            }
+            if (updateTime === 0) {
+                updateTime = currentTimestamp;
+            }
+            return {
+                ...item,
+                result: new Deadly(item.result),
+                score: {
+                    totalStar,
+                    totalScore,
+                    updateTime
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有危局强袭战排名，请先 %显示危局排名，并且用 %危局 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.totalStar !== b.score.totalStar) {
+                return b.score.totalStar - a.score.totalStar;
+            }
+            if (a.score.totalScore !== b.score.totalScore) {
+                return b.score.totalScore - a.score.totalScore;
+            }
+            return a.score.updateTime - b.score.updateTime;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const timer = setTimeout(() => {
+            if (this?.reply) {
+                this.reply('查询成功，正在下载图片资源，请稍候。');
+            }
+        }, 5000);
+        await Promise.all(_.map(scoredData, async (item) => {
+            await item.result.get_assets();
+        }));
+        clearTimeout(timer);
+        const finalData = { scoredData };
+        await this.render('rank/deadly/index.html', finalData, this);
+    }
+    async deadlyHardRank() {
+        const rank_type = 'DEADLY';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群危局强袭战排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getDeadlyDataInGroupRank(uidInGroupRankFiltered);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => {
+            const startTimeObj = _.get(item, 'result.start_time');
+            const endTimeObj = _.get(item, 'result.end_time');
+            if (!startTimeObj || !endTimeObj)
+                return false;
+            const startTime = new Date(startTimeObj.year, startTimeObj.month - 1, startTimeObj.day, startTimeObj.hour, startTimeObj.minute, startTimeObj.second).getTime() / 1000;
+            const endTime = new Date(endTimeObj.year, endTimeObj.month - 1, endTimeObj.day, endTimeObj.hour, endTimeObj.minute, endTimeObj.second).getTime() / 1000;
+            return currentTimestamp >= startTime && currentTimestamp <= endTime;
+        })
+            .filter(item => _.get(item, 'result.has_data') === true && _.get(item, 'result.has_hard') === true && Array.isArray(_.get(item, 'result.hard_list')) && _.get(item, 'result.hard_list').length > 0)
+            .map(item => {
+            const hardList = _.get(item, 'result.hard_list', []);
+            const hardScore = hardList.reduce((sum, h) => sum + (h?.score || 0), 0);
+            let updateTime = 0;
+            for (const challenge of hardList) {
+                if (challenge?.challenge_time) {
+                    const { year, month, day, hour, minute, second } = challenge.challenge_time;
+                    const challengeTime = new Date(year, month - 1, day, hour, minute, second).getTime() / 1000;
+                    updateTime = Math.max(updateTime, challengeTime);
+                }
+            }
+            if (updateTime === 0) {
+                updateTime = currentTimestamp;
+            }
+            return {
+                ...item,
+                result: new Deadly(item.result),
+                score: {
+                    score: hardScore,
+                    updateTime
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有危局强袭战绝境排名，请先 %显示危局绝境排名，并且用 %危局 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.score !== b.score.score) {
+                return b.score.score - a.score.score;
+            }
+            return a.score.updateTime - b.score.updateTime;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const timer = setTimeout(() => {
+            if (this?.reply) {
+                this.reply('查询成功，正在下载图片资源，请稍候。');
+            }
+        }, 5000);
+        await Promise.all(_.map(scoredData, async (item) => {
+            await item.result.get_assets();
+        }));
+        clearTimeout(timer);
+        const finalData = { scoredData };
+        await this.render('rank/deadlyHard/index.html', finalData, this);
+    }
+    async holoBossRank() {
+        const rank_type = 'HOLO_BOSS';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群拟境湮灭战排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getHoloBossDataInGroupRank(uidInGroupRankFiltered);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => {
+            const startTimeObj = _.get(item, 'result.start_time');
+            const endTimeObj = _.get(item, 'result.end_time');
+            if (!startTimeObj || !endTimeObj)
+                return false;
+            const startTime = new Date(startTimeObj.year, startTimeObj.month - 1, startTimeObj.day, startTimeObj.hour, startTimeObj.minute, startTimeObj.second).getTime() / 1000;
+            const endTime = new Date(endTimeObj.year, endTimeObj.month - 1, endTimeObj.day, endTimeObj.hour, endTimeObj.minute, endTimeObj.second).getTime() / 1000;
+            return currentTimestamp >= startTime && currentTimestamp <= endTime;
+        })
+            .filter(item => _.get(item, 'result.unlock') === true && Array.isArray(_.get(item, 'result.list')))
+            .map(item => {
+            const list = _.get(item, 'result.list', []);
+            const totalStar = list.reduce((sum, bossItem) => sum + (bossItem?.star || 0), 0);
+            const totalTimeSec = list.reduce((sum, bossItem) => sum + (bossItem?.challenge_time?.minute || 0) * 60 + (bossItem?.challenge_time?.second || 0), 0);
+            const noInjuredCount = list.reduce((sum, bossItem) => sum + (bossItem?.boss?.medal?.is_no_injured ? 1 : 0), 0);
+            const updateTime = _.get(item, 'updateTime', currentTimestamp);
+            return {
+                ...item,
+                result: new HoloBoss(item.result),
+                score: {
+                    totalStar,
+                    totalTimeSec,
+                    noInjuredCount,
+                    updateTime
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有拟境湮灭战排名，请先 %显示拟境排名，并且用 %拟境 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.totalStar !== b.score.totalStar) {
+                return b.score.totalStar - a.score.totalStar;
+            }
+            if (a.score.totalTimeSec !== b.score.totalTimeSec) {
+                return a.score.totalTimeSec - b.score.totalTimeSec;
+            }
+            if (a.score.noInjuredCount !== b.score.noInjuredCount) {
+                return b.score.noInjuredCount - a.score.noInjuredCount;
+            }
+            return a.score.updateTime - b.score.updateTime;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const timer = setTimeout(() => {
+            if (this?.reply) {
+                this.reply('查询成功，正在下载图片资源，请稍候。');
+            }
+        }, 5000);
+        await Promise.all(_.map(scoredData, async (item) => {
+            await item.result.get_assets();
+        }));
+        clearTimeout(timer);
+        const finalData = { scoredData };
+        await this.render('rank/holoBoss/index.html', finalData, this);
+    }
+    async voidFrontBattleRank() {
+        const rank_type = 'VOID_FRONT_BATTLE';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群临界推演排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getVoidFrontBattleDataInGroupRank(uidInGroupRankFiltered);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => {
+            const endTS = _.get(item, 'result.void_front_battle_abstract_info_brief.end_ts');
+            return currentTimestamp <= endTS;
+        })
+            .filter(item => _.get(item, 'result.void_front_battle_abstract_info_brief.has_ending_record') === true)
+            .map(item => {
+            const totalScore = _.get(item, 'result.void_front_battle_abstract_info_brief.total_score', 0);
+            const bossChallengeTime = _.get(item, 'result.boss_challenge_record.main_challenge_record.challenge_time');
+            const challenges = _.get(item, 'result.main_challenge_record_list');
+            let updateTime = new Date(bossChallengeTime.year, bossChallengeTime.month - 1, bossChallengeTime.day, bossChallengeTime.hour, bossChallengeTime.minute, bossChallengeTime.second).getTime() / 1000;
+            for (const challenge of challenges) {
+                const { year, month, day, hour, minute, second } = challenge.challenge_time;
+                const challengeTime = new Date(year, month - 1, day, hour, minute, second).getTime() / 1000;
+                updateTime = Math.max(updateTime, challengeTime);
+            }
+            if (updateTime === 0) {
+                updateTime = currentTimestamp;
+            }
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    totalScore,
+                    updateTime
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有临界推演排名，请先 %显示临界排名，并且用 %临界 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.totalScore !== b.score.totalScore) {
+                return b.score.totalScore - a.score.totalScore;
+            }
+            return a.score.updateTime - b.score.updateTime;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/voidFrontBattle/index.html', finalData, this);
+    }
+    async climbingTowerHelp() {
+        const help_msg = [
+            '当前可供查询的爬塔排名有：',
+            '- %爬塔S1排名（%拟真鏖战试炼排名）',
+            '- %爬塔S2排名（%鏖战试炼：末路排名）',
+            '- %爬塔S3排名（%鏖战试炼：荣耀排名）',
+            '- %爬塔S4排名（%鏖战试炼：狂澜排名）',
+        ];
+        if (!(this.e?.group_id)) {
+            help_msg.unshift('请在群聊中查询排名！');
+        }
+        return this.reply(help_msg.join('\n'));
+    }
+    async climbingTowerS1() {
+        const rank_type = 'CLIMBING_TOWER_S1';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群爬塔S1排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getClimbingTowerDataInGroupRank(uidInGroupRankFiltered);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => _.get(item, 'result.climbing_tower_s1') !== undefined)
+            .map(item => {
+            const maxFloor = _.get(item, 'result.climbing_tower_s1.climbing_tower_layer', 0);
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    maxFloor
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有爬塔S1排名，请先 %显示爬塔S1排名，并且用 %爬塔 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            return b.score.maxFloor - a.score.maxFloor;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/climbingTower/s1/index.html', finalData, this);
+    }
+    async climbingTowerS2() {
+        const rank_type = 'CLIMBING_TOWER_S2';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群爬塔S2排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getClimbingTowerDataInGroupRank(uidInGroupRankFiltered);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => _.get(item, 'result.climbing_tower_s2') !== undefined)
+            .map(item => {
+            const maxFloor = _.get(item, 'result.climbing_tower_s2.climbing_tower_layer', 0);
+            const noDamageCount = _.get(item, 'result.climbing_tower_s2.floor_mvp_num', 0);
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    maxFloor,
+                    noDamageCount
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有爬塔S2排名，请先 %显示爬塔S2排名，并且用 %爬塔 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.maxFloor !== b.score.maxFloor) {
+                return b.score.maxFloor - a.score.maxFloor;
+            }
+            return b.score.noDamageCount - a.score.noDamageCount;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/climbingTower/s2/index.html', finalData, this);
+    }
+    async climbingTowerS3() {
+        const rank_type = 'CLIMBING_TOWER_S3';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群爬塔S3排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getClimbingTowerDataInGroupRank(uidInGroupRankFiltered);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => _.get(item, 'result.climbing_tower_s3') !== undefined)
+            .map(item => {
+            const totalScore = _.get(item, 'result.climbing_tower_s3.layer_info.total_score', 0);
+            const maxFloor = _.get(item, 'result.climbing_tower_s3.layer_info.climbing_tower_layer', 0);
+            const noDamageCount = _.get(item, 'result.climbing_tower_s3.mvp_info.floor_mvp_num', 0);
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    totalScore,
+                    maxFloor,
+                    noDamageCount
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有爬塔S3排名，请先 %显示爬塔S3排名，并且用 %爬塔 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.totalScore !== b.score.totalScore) {
+                return b.score.totalScore - a.score.totalScore;
+            }
+            if (a.score.maxFloor !== b.score.maxFloor) {
+                return b.score.maxFloor - a.score.maxFloor;
+            }
+            return b.score.noDamageCount - a.score.noDamageCount;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/climbingTower/s3/index.html', finalData, this);
+    }
+    async climbingTowerS4() {
+        const rank_type = 'CLIMBING_TOWER_S4';
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        if (!this.isGroupRankAllowed()) {
+            await this.reply('当前群爬塔S4排名功能已关闭！');
+            return;
+        }
+        const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+        const memberMap = await this.e.group?.getMemberMap() || new Map();
+        const qqInGroupSet = new Set(Array.from(memberMap.keys(), String));
+        const uid2qqs = await getUid2QQsMapping(this.e.group_id);
+        const uidInGroupRankFiltered = [];
+        for (const uid of uidInGroupRank) {
+            if (uid in uid2qqs && uid2qqs[uid].some(qq => qqInGroupSet.has(qq))) {
+                uidInGroupRankFiltered.push(uid);
+            }
+            else {
+                await removeUidAllRecord(this.e.group_id, uid);
+            }
+        }
+        const rawData = getClimbingTowerDataInGroupRank(uidInGroupRankFiltered);
+        const filteredByUser = [];
+        for (const item of rawData) {
+            const gameUid = _.get(item, 'player.player.game_uid');
+            const userRankAllowed = await isUserRankAllowed(rank_type, gameUid, this.e.group_id);
+            if (/^[0-9]{8}$/.test(gameUid) && userRankAllowed) {
+                filteredByUser.push(item);
+            }
+        }
+        let scoredData = filteredByUser
+            .filter(item => _.get(item, 'result.climbing_tower_s4') !== undefined)
+            .map(item => {
+            const totalScore = _.get(item, 'result.climbing_tower_s4.layer_info.total_score', 0);
+            const maxFloor = _.get(item, 'result.climbing_tower_s4.layer_info.climbing_tower_layer', 0);
+            const noDamageCount = _.get(item, 'result.climbing_tower_s4.mvp_info.floor_mvp_num', 0);
+            return {
+                ...item,
+                result: item.result,
+                score: {
+                    totalScore,
+                    maxFloor,
+                    noDamageCount
+                }
+            };
+        });
+        if (scoredData.length === 0) {
+            return this.reply('没有爬塔S4排名，请先 %显示爬塔S4排名，并且用 %爬塔 查询战绩');
+        }
+        scoredData.sort((a, b) => {
+            if (a.score.totalScore !== b.score.totalScore) {
+                return b.score.totalScore - a.score.totalScore;
+            }
+            if (a.score.maxFloor !== b.score.maxFloor) {
+                return b.score.maxFloor - a.score.maxFloor;
+            }
+            return b.score.noDamageCount - a.score.noDamageCount;
+        });
+        let maxDisplay = _.get(settings.getConfig('rank'), 'max_display', 15);
+        maxDisplay = Math.max(1, Math.min(maxDisplay, 15));
+        scoredData = scoredData.slice(0, maxDisplay);
+        const finalData = { scoredData };
+        await this.render('rank/climbingTower/s4/index.html', finalData, this);
+    }
+    async switchRank() {
+        if (!(this.e?.group_id)) {
+            return this.reply('请在群聊中使用该命令！');
+        }
+        const uid = await this.getUID();
+        if (!uid) {
+            return this.reply('未绑定UID，请先绑定');
+        }
+        const enableRegex = /显示|展示|开启|打开|on|启用|启动/i;
+        const disableRegex = /隐藏|取消显示|关闭|关掉|off|禁用|停止/i;
+        let isEnable;
+        if (enableRegex.test(this.e.msg)) {
+            isEnable = true;
+        }
+        else if (disableRegex.test(this.e.msg)) {
+            isEnable = false;
+        }
+        else {
+            return this.reply('请输入"显示"或"隐藏"来设置是否显示个人的深渊排名', false, { at: true });
+        }
+        let rank_types = [];
+        let rank_type_str = '';
+        if (/式舆防卫战|式舆|深渊|防卫战|防卫/.test(this.e.msg)) {
+            rank_types = ['ABYSS'];
+            rank_type_str = '式舆防卫战';
+        }
+        else if (/危局强袭战|危局|强袭|强袭战/.test(this.e.msg)) {
+            rank_types = ['DEADLY'];
+            rank_type_str = '危局强袭战';
+        }
+        else if (/拟境湮灭战|拟境|湮灭|湮灭战/.test(this.e.msg)) {
+            rank_types = ['HOLO_BOSS'];
+            rank_type_str = '拟境湮灭战';
+        }
+        else if (/临界推演|临界|推演/.test(this.e.msg)) {
+            rank_types = ['VOID_FRONT_BATTLE'];
+            rank_type_str = '临界推演';
+        }
+        else if (/爬塔S1|拟真鏖战试炼/i.test(this.e.msg)) {
+            rank_types = ['CLIMBING_TOWER_S1'];
+            rank_type_str = '爬塔S1';
+        }
+        else if (/爬塔S2|鏖战试炼：末路/i.test(this.e.msg)) {
+            rank_types = ['CLIMBING_TOWER_S2'];
+            rank_type_str = '爬塔S2';
+        }
+        else if (/爬塔S3|鏖战试炼：荣耀/i.test(this.e.msg)) {
+            rank_types = ['CLIMBING_TOWER_S3'];
+            rank_type_str = '爬塔S3';
+        }
+        else if (/爬塔S4|鏖战试炼：狂澜/i.test(this.e.msg)) {
+            rank_types = ['CLIMBING_TOWER_S4'];
+            rank_type_str = '爬塔S4';
+        }
+        else {
+            rank_types = ['ABYSS', 'DEADLY', 'HOLO_BOSS', 'VOID_FRONT_BATTLE', 'CLIMBING_TOWER_S1', 'CLIMBING_TOWER_S2', 'CLIMBING_TOWER_S3', 'CLIMBING_TOWER_S4'];
+            rank_type_str = '式舆防卫战、危局强袭战、拟境湮灭战、临界推演和爬塔';
+        }
+        for (const rank_type of rank_types) {
+            await setUserRankAllowed(rank_type, uid, this.e.group_id, isEnable ? 1 : 0);
+        }
+        const enableString = isEnable ? '显示' : '隐藏';
+        await this.e.reply(`绝区零 UID: ${uid}，${rank_type_str}排名功能已设置为: ${enableString}`, false, { at: true });
+    }
+}
+//# sourceMappingURL=rank.js.map

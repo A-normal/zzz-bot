@@ -1,0 +1,14 @@
+diff --git a/components/App.js b/components/App.js
+index c5c02e0..27b31c7 100644
+--- a/components/App.js
++++ b/components/App.js
+@@ -76,6 +76,9 @@ class App {
+ 
+       cls.prototype[key] = async function (e) {
+         e = this.e || e
++        if ((e.game === 'zzz' || e.isZZZ) && key !== 'calendarZZZ') {
++          return false
++        }
+         const self_id = e.self_id || e.bot?.uin || Bot.uin
+         if (event === 'poke') {
+           if (e.notice_type === 'group') {

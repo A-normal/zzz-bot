@@ -58,7 +58,15 @@ zzz-bot/
 │       └── apps/
 │           ├── gachalog.js   # 抽卡记录分析与聚合
 │           ├── panel.js      # 角色展柜与面板提取
-│           └── poolHistory.js# 历史卡池时间线与单消息优化模块
+│           ├── poolHistory.js# 历史卡池时间线与单消息优化模块
+│           ├── monthly.js    # 月报与收支查询（前后置日期自适应）
+│           ├── rank.js       # 战绩与段位排名（临界推演文案与拦截修正）
+│           ├── remind.js     # 挑战提醒与阈值设置（深渊/防卫战多别名）
+│           ├── manage.js     # 核心配置调度（参数空格自适应）
+│           └── manage/       # 管理功能子模块
+│               ├── panel.js  # 面板图管理（安全存在性防御）
+│               ├── guides.js # 攻略配置（空格兼容）
+│               └── config.js # 运行参数配置（空格兼容）
 ├── patches/                  # 官方组件缺陷修复补丁集合
 │   ├── qqbot-mask-account.patch       # QQBot #QQBot账号 凭据防泄露补丁
 │   ├── qqbot-reconnect-fix.patch      # QQBot 网关重连与心跳保活补丁
@@ -67,17 +75,22 @@ zzz-bot/
 │   ├── poolHistory.patched.js         # 优化版 poolHistory 实现文件
 │   ├── poolHistory.original.js        # 补丁前原始对比文件
 │   ├── trss-plugin-mihoyologin.patch  # 米游社验证码/扫码登录补丁
-│   └── miHoYoLogin.new.js             # 修复版米游社登录实现文件
+│   ├── miHoYoLogin.new.js             # 修复版米游社登录实现文件
+│   ├── miao-plugin-zzz-yield.patch    # Miao-Plugin 绝区零命名空间指令放行补丁
+│   ├── miao-App.patched.js            # 修复版 Miao-Plugin App.js 调度器
+│   └── zzz-plugin-namespace-fixes.patch # ZZZ-Plugin 全量命名空间指令修复 Unified Diff
 ├── scripts/                  # 运维维护与补丁一键应用脚本
 │   ├── apply_patch.ps1                # 账号掩码补丁一键应用工具
 │   ├── apply_qqbot_reconnect_patch.ps1# QQBot 重连修复热部署工具
 │   ├── apply_pool_history_patch.ps1   # 卡池查询优化热部署工具
+│   ├── apply_zzz_namespace_fixes.ps1  # ZZZ 命名空间修复热部署与容器同步工具
 │   ├── patch_pool_history.py          # 卡池历史单条消息合并 Python 工具
 │   ├── gen_patch.ps1                  # 补丁生成辅助脚本
 │   ├── inspect_patch.ps1              # 补丁定位检查工具
 │   └── save_diff.ps1                  # 差异对比保存工具
 └── tests/                    # 路由与管线自动化测试
-    └── shortcut-pipeline-test.mjs     # 快捷指令路由与优先级回归测试
+    ├── shortcut-pipeline-test.mjs     # 快捷指令路由与优先级回归测试
+    └── zzz-namespace-regex-test.mjs   # 绝区零命名空间指令正则与容错自动化测试
 ```
 
 ---

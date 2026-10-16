@@ -1,0 +1,946 @@
+diff --git a/dist/apps/gachalog.js b/dist/apps/gachalog.js
+old mode 100644
+new mode 100755
+index 3d79cfb..9d4acea
+--- a/dist/apps/gachalog.js
++++ b/dist/apps/gachalog.js
+@@ -109,18 +109,42 @@ export class GachaLog extends ZZZPlugin {
+         const uid = await this.getUID();
+         if (!uid)
+             return false;
++        let progressRes = null;
+         try {
+             const { api, deviceFp } = await this.getAPI();
+-            this.reply('抽卡记录获取中请稍等...可能需要一段时间，请耐心等待');
++            progressRes = await this.reply('抽卡记录获取中请稍等...可能需要一段时间，请耐心等待', false, { recallMsg: 90 });
+             const { data, count } = await updateGachaLog_ck(api, uid, deviceFp);
+-            const msg = [];
+-            msg.push(`抽卡记录更新成功，共${Object.keys(data).length}个卡池`);
+-            for (const name in data) {
+-                msg.push(`${name}新增${count[name] || 0}条记录，一共${data[name].length}条记录`);
++            const pools = Object.keys(data).map(name => ({
++                name,
++                newCount: count[name] || 0,
++                total: data[name].length
++            }));
++            let renderSuccess = false;
++            try {
++                await this.render('gachalog/summary.html', { uid, pools });
++                renderSuccess = true;
++            } catch (rErr) {
++                logger.warn(`[绝区零抽卡] 抽卡摘要卡片渲染失败，降级为文本: ${rErr.message}`);
+             }
+-            return this.reply(await common.makeForwardMsg(this.e, msg, '抽卡记录更新成功'));
++            if (!renderSuccess) {
++                const lines = [];
++                lines.push(`【绝区零抽卡记录更新成功】\n共同步 ${pools.length} 个卡池：`);
++                for (const p of pools) {
++                    lines.push(`• ${p.name}：新增 ${p.newCount} 条，累计 ${p.total} 条`);
++                }
++                await this.reply(lines.join('\n'));
++            }
++            if (progressRes?.message_id) {
++                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++            }
++            return true;
+         }
+         catch (error) {
++            if (progressRes?.message_id) {
++                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++            }
+             await this.reply(error.message);
+         }
+     }
+@@ -128,14 +152,43 @@ export class GachaLog extends ZZZPlugin {
+         const uid = await this.getUID();
+         if (!uid)
+             return false;
+-        this.reply('抽卡记录获取中请稍等...可能需要一段时间，请耐心等待');
+-        const { data, count } = await updateGachaLog(key, uid);
+-        const msg = [];
+-        msg.push(`抽卡记录更新成功，共${Object.keys(data).length}个卡池`);
+-        for (const name in data) {
+-            msg.push(`${name}新增${count[name] || 0}条记录，一共${data[name].length}条记录`);
++        let progressRes = null;
++        try {
++            progressRes = await this.reply('抽卡记录获取中请稍等...可能需要一段时间，请耐心等待', false, { recallMsg: 90 });
++            const { data, count } = await updateGachaLog(key, uid);
++            const pools = Object.keys(data).map(name => ({
++                name,
++                newCount: count[name] || 0,
++                total: data[name].length
++            }));
++            let renderSuccess = false;
++            try {
++                await this.render('gachalog/summary.html', { uid, pools });
++                renderSuccess = true;
++            } catch (rErr) {
++                logger.warn(`[绝区零抽卡] 抽卡摘要卡片渲染失败，降级为文本: ${rErr.message}`);
++            }
++            if (!renderSuccess) {
++                const lines = [];
++                lines.push(`【绝区零抽卡记录更新成功】\n共同步 ${pools.length} 个卡池：`);
++                for (const p of pools) {
++                    lines.push(`• ${p.name}：新增 ${p.newCount} 条，累计 ${p.total} 条`);
++                }
++                await this.reply(lines.join('\n'));
++            }
++            if (progressRes?.message_id) {
++                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++            }
++            return true;
++        }
++        catch (error) {
++            if (progressRes?.message_id) {
++                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++            }
++            await this.reply(error.message);
+         }
+-        return this.reply(await common.makeForwardMsg(this.e, msg, '抽卡记录更新成功'));
+     }
+     async getLogWithOutUID(key, region, game_biz) {
+         await this.reply('抽卡链接解析成功，正在查询抽卡记录，可能耗费一段时间，请勿重复发送', false, { at: true, recallMsg: getRecallMsg() });
+diff --git a/dist/apps/manage.js b/dist/apps/manage.js
+old mode 100644
+new mode 100755
+index 0ca5d09..4374967
+--- a/dist/apps/manage.js
++++ b/dist/apps/manage.js
+@@ -44,31 +44,31 @@ export class Manage extends ZZZPlugin {
+                     fnc: 'deleteAll'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置默认攻略(\\d+|all)$`,
++                    reg: `${rulePrefix}设置默认攻略\\s*(\\d+|all)$`,
+                     fnc: 'setDefaultGuide'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置所有攻略显示个数(\\d+)$`,
++                    reg: `${rulePrefix}设置所有攻略显示个数\\s*(\\d+)$`,
+                     fnc: 'setMaxForwardGuide'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置渲染精度(\\d+)$`,
++                    reg: `${rulePrefix}设置渲染精度\\s*(\\d+)$`,
+                     fnc: 'setRenderPrecision'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置撤回时间(\\d+)$`,
++                    reg: `${rulePrefix}设置撤回时间\\s*(\\d+)$`,
+                     fnc: 'setRecallMsg'
+                 },
+                 {
+-                    reg: `${rulePrefix}刷新抽卡间隔(\\d+)$`,
++                    reg: `${rulePrefix}刷新抽卡间隔\\s*(\\d+)$`,
+                     fnc: 'setRefreshGachaInterval'
+                 },
+                 {
+-                    reg: `${rulePrefix}刷新面板间隔(\\d+)$`,
++                    reg: `${rulePrefix}刷新面板间隔\\s*(\\d+)$`,
+                     fnc: 'setRefreshPanelInterval'
+                 },
+                 {
+-                    reg: `${rulePrefix}刷新角色间隔(\\d+)$`,
++                    reg: `${rulePrefix}刷新角色间隔\\s*(\\d+)$`,
+                     fnc: 'setRefreshCharInterval'
+                 },
+                 {
+diff --git a/dist/apps/manage/config.js b/dist/apps/manage/config.js
+index e74a3b5..ee7a733 100644
+--- a/dist/apps/manage/config.js
++++ b/dist/apps/manage/config.js
+@@ -5,7 +5,7 @@ export async function setRenderPrecision(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /渲染精度(\d+)$/.exec(e.msg);
++    const match = /渲染精度\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const render_precision = Number(match[1]);
+@@ -31,7 +31,7 @@ export async function setRefreshGachaInterval(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /刷新抽卡间隔(\d+)$/.exec(e.msg);
++    const match = /刷新抽卡间隔\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const refresh_gacha_interval = Number(match[1]);
+@@ -55,7 +55,7 @@ export async function setRefreshPanelInterval(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /刷新面板间隔(\d+)$/.exec(e.msg);
++    const match = /刷新面板间隔\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const refresh_panel_interval = Number(match[1]);
+@@ -79,7 +79,7 @@ export async function setRefreshCharInterval(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /刷新角色间隔(\d+)$/.exec(e.msg);
++    const match = /刷新角色间隔\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const refresh_char_interval = Number(match[1]);
+@@ -103,7 +103,7 @@ export async function setRecallMsg(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /撤回时间(\d+)$/.exec(e.msg);
++    const match = /撤回时间\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const recall_msg = Number(match[1]);
+diff --git a/dist/apps/manage/guides.js b/dist/apps/manage/guides.js
+index 45589e5..17316b7 100644
+--- a/dist/apps/manage/guides.js
++++ b/dist/apps/manage/guides.js
+@@ -6,7 +6,7 @@ export async function setDefaultGuide(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /设置默认攻略(\d+|all)$/.exec(e.msg);
++    const match = /设置默认攻略\s*(\d+|all)$/.exec(e.msg);
+     if (!match)
+         return false;
+     let guide_id = match[1];
+@@ -33,7 +33,7 @@ export async function setMaxForwardGuide(e) {
+     if (!e.isMaster) {
+         return e.reply('仅限主人设置', false, { at: true, recallMsg: getRecallMsg() });
+     }
+-    const match = /设置所有攻略显示个数(\d+)$/.exec(e.msg);
++    const match = /设置所有攻略显示个数\s*(\d+)$/.exec(e.msg);
+     if (!match)
+         return false;
+     const max_forward_guide = Number(match[1]);
+diff --git a/dist/apps/manage/panel.js b/dist/apps/manage/panel.js
+index 8c2a40c..37206d7 100644
+--- a/dist/apps/manage/panel.js
++++ b/dist/apps/manage/panel.js
+@@ -73,6 +73,9 @@ export async function uploadCharacterImg(e) {
+     }
+     const resourcesImagesPath = imageResourcesPath;
+     const panelImagesPath = path.join(resourcesImagesPath, `panel/${name}`);
++    if (!fs.existsSync(panelImagesPath)) {
++        return e.reply(`未找到【${name}】的面板图或角色图`, false, { at: true, recallMsg: getRecallMsg() });
++    }
+     let success = 0;
+     let failed = 0;
+     for (const image of images) {
+@@ -112,6 +115,9 @@ export async function getCharacterImages(e) {
+     const pageSize = 5;
+     const resourcesImagesPath = imageResourcesPath;
+     const panelImagesPath = path.join(resourcesImagesPath, `panel/${name}`);
++    if (!fs.existsSync(panelImagesPath)) {
++        return e.reply(`未找到【${name}】的面板图或角色图`, false, { at: true, recallMsg: getRecallMsg() });
++    }
+     const files = fs.readdirSync(panelImagesPath);
+     const images = [];
+     for (const file of files) {
+diff --git a/dist/apps/monthly.js b/dist/apps/monthly.js
+old mode 100644
+new mode 100755
+index 53e175e..8ec704d
+--- a/dist/apps/monthly.js
++++ b/dist/apps/monthly.js
+@@ -13,7 +13,7 @@ export class monthly extends ZZZPlugin {
+             priority: _.get(settings.getConfig('priority'), 'monthly', 70),
+             rule: [
+                 {
+-                    reg: `${rulePrefix}(monthly|菲林|邦布券|收入|月报)((\\d{4})年)?((\\d{1,2}|上)月)?$`,
++                    reg: `${rulePrefix}(?:(\\\d{4})年)?(?:(\\\d{1,2}|上)月)?(?:monthly|菲林|邦布券|收入|月报)(?:(\d{4})年)?(?:(\d{1,2}|上)月)?$`,
+                     fnc: 'monthly'
+                 },
+                 {
+@@ -24,13 +24,13 @@ export class monthly extends ZZZPlugin {
+         });
+     }
+     async monthly() {
+-        const reg = new RegExp(`(monthly|菲林|邦布券|收入|月报)((\\d{4})年)?((\\d{1,2}|上)月)?$`);
++        const reg = /(?:(\d{4})年)?(?:(\d{1,2}|上)月)?(?:monthly|菲林|邦布券|收入|月报)(?:(\d{4})年)?(?:(\d{1,2}|上)月)?$/;
+         const match = this.e.msg.match(reg);
+         if (!match) {
+             return this.reply('参数错误，请检查输入');
+         }
+-        const year = match[3];
+-        const month = match[5];
++        const year = match[1] || match[3];
++        const month = match[2] || match[4];
+         const { api, deviceFp } = await this.getAPI();
+         await this.getPlayerInfo();
+         const monthlyResponse = await getMonthly(api, deviceFp, this.getDateString(year, month)).catch((e) => {
+diff --git a/dist/apps/panel.js b/dist/apps/panel.js
+old mode 100644
+new mode 100755
+index 7ac6a17..13b52de
+--- a/dist/apps/panel.js
++++ b/dist/apps/panel.js
+@@ -56,28 +56,56 @@ export class Panel extends ZZZPlugin {
+         const panelSettings = settings.getConfig('panel');
+         const coldTime = _.get(panelSettings, 'interval', 300);
+         if (lastQueryTime && Date.now() - Number(lastQueryTime) < 1000 * coldTime) {
+-            return this.reply(`${coldTime}秒内只能更新一次，请稍后再试`);
++            const passed = Math.floor((Date.now() - Number(lastQueryTime)) / 1000);
++            const remain = coldTime - passed;
++            const m = Math.floor(remain / 60);
++            const s = remain % 60;
++            const timeDesc = m > 0 ? `${m}分${s}秒` : `${s}秒`;
++            return this.reply(`⏳ 刷新面板冷却中：请在 ${timeDesc} 后再试（避免频繁请求触发风控）`);
+         }
+         const isEnka = this.e.msg.includes('展柜') || !(await getCk(this.e));
+         let result = null;
++        let progressRes = null;
+         if (isEnka) {
+             const data = await refreshPanelFromEnka(uid)
+                 .catch(err => err);
+             if (data instanceof Error) {
+                 logger.warn(`Enka服务调用失败：`, data);
+-                return this.reply(`Enka服务调用失败：${data.message}`);
++                const errTip = [
++                    '【绝区零展柜面板提示】',
++                    `⚠️ Enka展柜服务查询失败：${data.message}`,
++                    '💡 排查建议：',
++                    '1. 请确认当前绑定的绝区零 UID 是否无误；',
++                    '2. 检查游戏内「绳匠名片」->「展柜设置」中是否开启「公开展示角色详情」；',
++                    '3. 若刚刚放入角色，请等待 2 分钟待米哈游服务器与 Enka 完成同步后重试。'
++                ].join('\n');
++                return this.reply(errTip);
+             }
+             if (typeof data === 'object') {
+                 await redis.set(`ZZZ:PANEL:${uid}:LASTTIME`, Date.now());
+                 const { playerInfo, panelList } = data;
+                 if (!panelList.length) {
+-                    return this.reply('面板列表为空，请确保已于游戏中展示角色');
++                    const emptyTip = [
++                        '【绝区零展柜面板提示】',
++                        '⚠️ 未在 Enka 展柜中检测到公开展示的代理人。',
++                        '💡 设置指引：',
++                        '1. 登录绝区零游戏，点击左上角「绳匠名片」；',
++                        '2. 点击「展柜设置」，将您的主力代理人放入展柜；',
++                        '3. 确保右上角的「公开展示角色详情」处于开启勾选状态；',
++                        '4. 完成后等待 1~2 分钟游戏数据同步，重新发送 /更新面板 即可展示。'
++                    ].join('\n');
++                    return this.reply(emptyTip);
+                 }
+                 result = await mergePanel(uid, panelList);
+                 await this.getPlayerInfo(playerInfo);
+             }
+             else if (typeof data === 'number') {
+-                return this.reply(`Enka服务调用失败，状态码：${data}`);
++                const codeTip = [
++                    '【绝区零展柜面板提示】',
++                    `⚠️ Enka服务返回状态码：${data}`,
++                    '💡 说明：通常为 Enka 接口临时限频或正在拉取数据，请稍候 2 分钟后再试。'
++                ].join('\n');
++                return this.reply(codeTip);
+             }
+         }
+         else {
+@@ -89,7 +117,7 @@ export class Panel extends ZZZPlugin {
+             };
+             try {
+                 const { api, deviceFp } = await this.getAPI();
+-                await oriReply('正在更新面板列表，请稍候...');
++                progressRes = await oriReply('正在更新面板列表，请稍候...', false, { recallMsg: 120 });
+                 await this.getPlayerInfo();
+                 await redis.set(`ZZZ:PANEL:${uid}:LASTTIME`, Date.now());
+                 result = await refreshPanelFunction(api, deviceFp);
+@@ -100,23 +128,41 @@ export class Panel extends ZZZPlugin {
+             }
+             this.reply = oriReply;
+             if (errorMsg && !result) {
+-                return this.reply(`面板列表更新失败，请稍后再试或尝试%更新展柜面板：\n${errorMsg.trim()}`);
++                if (progressRes?.message_id) {
++                    if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                    else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                }
++                const failTip = [
++                    '【绝区零面板更新失败】',
++                    `原因：${errorMsg.trim()}`,
++                    '💡 建议：可稍后再试，或尝试发送 /更新展柜面板 通过 Enka 展柜刷新；若凭据失效请发送 /绑定 重新扫码。'
++                ].join('\n');
++                return this.reply(failTip);
+             }
+         }
+-        if (!result)
++        if (!result) {
++            if (progressRes?.message_id) {
++                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++            }
+             return false;
++        }
+         const newChar = result.filter(item => item.isNew);
+         const finalData = {
+             newChar: newChar.length,
+             list: result
+         };
+         await this.render('panel/refresh.html', finalData);
++        if (progressRes?.message_id) {
++            if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++            else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++        }
+     }
+     async getCharPanelList() {
+         const uid = await this.getUID();
+         const result = getPanelList(uid);
+         if (!result.length) {
+-            return this.reply(`UID:${uid}无本地面板数据，请先%更新面板 或 %更新展柜面板`);
++            return this.reply(`UID:${uid}暂无本地面板数据，请先发送 /更新面板 或 %更新面板 获取`);
+         }
+         const hasCk = !!(await getCk(this.e));
+         await this.getPlayerInfo(hasCk ? undefined : parsePlayerInfo({ uid }));
+diff --git a/dist/apps/poolHistory.js b/dist/apps/poolHistory.js
+old mode 100644
+new mode 100755
+index eb95405..70bb1fb
+--- a/dist/apps/poolHistory.js
++++ b/dist/apps/poolHistory.js
+@@ -1,10 +1,120 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import { createRequire } from 'node:module';
+ import { aliasToName } from '../lib/convert/char.js';
+ import common from '../../../../lib/common/common.js';
+ import { rulePrefix } from '../lib/common.js';
+ import { ZZZPlugin } from '../lib/plugin.js';
+ import settings from '../lib/settings.js';
+ import fetch from 'node-fetch';
+-const DATA_URL = 'https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json';
++const require = createRequire(import.meta.url);
++const DATA_URLS = [
++    'https://ghproxy.net/https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json',
++    'https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json'
++];
++
++function getCheerio() {
++    const pnpmPath = path.resolve(process.cwd(), 'node_modules/.pnpm');
++    if (fs.existsSync(pnpmPath)) {
++        try {
++            const entries = fs.readdirSync(pnpmPath).filter(x => x.startsWith('cheerio@'));
++            if (entries.length) {
++                return require(path.resolve(pnpmPath, entries[0], 'node_modules/cheerio'));
++            }
++        } catch {}
++    }
++    try {
++        return require('cheerio');
++    } catch {
++        return null;
++    }
++}
++
++async function fetchBiliWiki() {
++    const cheerio = getCheerio();
++    if (!cheerio) return null;
++    const apiUrl = 'https://wiki.biligame.com/zzz/api.php?action=parse&page=%E8%B0%83%E9%A2%91&prop=text&format=json';
++    const res = await fetch(apiUrl, {
++        headers: {
++            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
++            'Referer': 'https://wiki.biligame.com/zzz/',
++            'Accept': 'application/json, text/plain, */*'
++        },
++        signal: AbortSignal.timeout(10000)
++    });
++    if (!res.ok) return null;
++    const json = await res.json();
++    const html = json?.parse?.text?.['*'];
++    if (!html) return null;
++    const $ = cheerio.load(html);
++    const seen = new Set();
++    const items = [];
++    $('table').each((_, tb) => {
++        const $tb = $(tb);
++        if ($tb.find('table').length > 0) return;
++        const trs = $tb.find('tr');
++        if (trs.length < 3) return;
++        let timeText = null;
++        let versionText = null;
++        let sList = [];
++        let aList = [];
++        let titleText = '';
++        let imgSrc = '';
++        trs.each((idx, tr) => {
++            const $tr = $(tr);
++            const th = $tr.find('th').text().trim();
++            const td = $tr.find('td');
++            const tdText = td.text().trim();
++            if (idx === 0) {
++                titleText = $tr.text().trim().replace(/\n/g, '');
++                const img = $tr.find('img');
++                if (img.length) {
++                    imgSrc = img.attr('srcset')?.split(' ')[0] || img.attr('src') || '';
++                }
++            }
++            if (th.includes('时间')) {
++                timeText = tdText;
++            } else if (th.includes('版本')) {
++                versionText = tdText;
++            } else if (th.includes('S级') || th.includes('S 级')) {
++                td.find('a').each((_, a) => {
++                    const name = $(a).attr('title') || $(a).text().trim();
++                    if (name) sList.push(name);
++                });
++            } else if (th.includes('A级') || th.includes('A 级')) {
++                td.find('a').each((_, a) => {
++                    const name = $(a).attr('title') || $(a).text().trim();
++                    if (name) aList.push(name);
++                });
++            }
++        });
++        if (timeText && versionText && sList.length > 0) {
++            const isRole = titleText.includes('独家') || $tb.text().includes('代理人');
++            const type = isRole ? '角色' : '武器';
++            const cleanA = Array.from(new Set(aList.map(x => x.replace(/（.*）/, '').trim()))).sort();
++            for (const s of sList) {
++                const cleanS = s.replace(/（.*）/, '').trim();
++                const key = `${versionText}_${type}_${cleanS}`;
++                if (seen.has(key)) continue;
++                seen.add(key);
++                const defaultImg = isRole
++                    ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
++                    : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
++                items.push({
++                    img: imgSrc || defaultImg,
++                    title: titleText || `「${cleanS}」频段`,
++                    type,
++                    version: versionText,
++                    timer: timeText,
++                    s: cleanS,
++                    a: cleanA,
++                    img_path: `img/zzz/history/${titleText || cleanS}.png`
++                });
++            }
++        }
++    });
++    return items.length > 0 ? items : null;
++}
+ export class PoolHistory extends ZZZPlugin {
+     dataCacheKey;
+     dataCacheExpireKey;
+@@ -17,8 +127,8 @@ export class PoolHistory extends ZZZPlugin {
+             priority: settings.getConfig('priority')?.panel ?? 70,
+             rule: [
+                 {
+-                    reg: `${rulePrefix}.+(复刻|卡池)(统计|记录|历史)$`,
+-                    fnc: 'dispatchHandler'
++                    reg: `${rulePrefix}(刷新|更新|重载)卡池(记录|历史)?$`,
++                    fnc: 'reloadPoolData'
+                 },
+                 {
+                     reg: `${rulePrefix}(当前|本期|当期)?卡池$`,
+@@ -31,6 +141,10 @@ export class PoolHistory extends ZZZPlugin {
+                 {
+                     reg: `${rulePrefix}v?(\\d+\\.\\d+)(上半|下半)?卡池$`,
+                     fnc: 'queryVersionPool'
++                },
++                {
++                    reg: `${rulePrefix}(?!刷新|更新|重载).+(复刻|卡池)(统计|记录|历史)$`,
++                    fnc: 'dispatchHandler'
+                 }
+             ]
+         });
+@@ -153,42 +267,116 @@ export class PoolHistory extends ZZZPlugin {
+         if (rolePools.length > 0) {
+             replyMsg.push(`\n【 角色调频 】\n`);
+             rolePools.forEach(p => {
+-                const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
+-                replyMsg.push(`◈ S-${p.s} | A-${aRoles}\n`);
++                const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
++                replyMsg.push(`◈ S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
+                 replyMsg.push(segment.image(p.img));
+             });
+         }
+         if (weaponPools.length > 0) {
+             replyMsg.push(`\n【 音擎调频 】\n`);
+             weaponPools.forEach(p => {
+-                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
+-                replyMsg.push(`◈ S-${p.s} | A-${aWeapons}\n`);
++                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
++                replyMsg.push(`◈ S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
+                 replyMsg.push(segment.image(p.img));
+             });
+         }
+         return this.reply(replyMsg);
+     }
+     async queryAllPool() {
+-        const old = await redis.get(this.queryAllPoolMsgCacheKey);
+-        if (old) {
+-            try {
+-                return await this.reply(JSON.parse(old));
++        let progressRes = null;
++        try {
++            progressRes = await this.reply('正在整理绝区零全版本卡池记录，请稍候...', false, { recallMsg: 60 });
++        } catch {
++            // ignore progress notice failure
++        }
++        try {
++            const old = await redis.get(this.queryAllPoolMsgCacheKey);
++            if (old) {
++                try {
++                    if (old.startsWith('{') || old.startsWith('[')) {
++                        await redis.del(this.queryAllPoolMsgCacheKey);
++                    } else {
++                        if (progressRes?.message_id) {
++                            try {
++                                if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                                else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                            } catch {}
++                        }
++                        return await this.reply(old);
++                    }
++                } catch {
++                    await redis.del(this.queryAllPoolMsgCacheKey);
++                }
+             }
+-            catch {
+-                redis.del(this.queryAllPoolMsgCacheKey);
++            const data = await this.fetchData();
++            if (!data) {
++                if (progressRes?.message_id) {
++                    try {
++                        if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                        else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                    } catch {}
++                }
++                return false;
++            }
++            const versionList = [...new Set(data.map(p => p.version.replace(/(上半|下半)$/u, '')))].sort((a, b) => {
++                const [aMajor, aMinor] = a.split('.').map(Number);
++                const [bMajor, bMinor] = b.split('.').map(Number);
++                if (bMajor !== aMajor) return bMajor - aMajor;
++                return bMinor - aMinor;
++            });
++            const lines = ['【 绝区零全版本卡池记录（时间线逆序）】\n'];
++            for (const v of versionList) {
++                const pools = data.filter(p => p.version.startsWith(v));
++                if (!pools.length) continue;
++                const versionStages = [...new Set(pools.map(p => p.version))].sort((a, b) => {
++                    if (a.includes('下半') && b.includes('上半')) return -1;
++                    if (a.includes('上半') && b.includes('下半')) return 1;
++                    return b.localeCompare(a);
++                });
++                for (const stage of versionStages) {
++                    const stagePools = pools.filter(p => p.version === stage);
++                    const timerDisplay = stagePools[0]?.timer?.replace(/ \d{2}:\d{2}:\d{2}/g, '').trim() || '';
++                    lines.push(`【 v${stage} 】${timerDisplay ? ' ' + timerDisplay : ''}`);
++                    const rolePools = stagePools.filter(p => p.type === '角色');
++                    const weaponPools = stagePools.filter(p => p.type === '武器');
++                    if (rolePools.length > 0) {
++                        const roleStrs = rolePools.map(p => {
++                            const aRoles = Array.isArray(p.a) ? p.a.join('、') : (p.a || '');
++                            return `S-${p.s}${aRoles ? ' | A-' + aRoles : ''}`;
++                        });
++                        lines.push(`◈ 角色：${roleStrs.join('；')}`);
++                    }
++                    if (weaponPools.length > 0) {
++                        const weaponStrs = weaponPools.map(p => {
++                            const aWeapons = Array.isArray(p.a) ? p.a.join('、') : (p.a || '');
++                            return `S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}`;
++                        });
++                        lines.push(`◈ 音擎：${weaponStrs.join('；')}`);
++                    }
++                    lines.push('');
++                }
+             }
++            const msg = lines.join('\n').trim();
++            redis.set(this.queryAllPoolMsgCacheKey, msg, {
++                EX: 7 * 24 * 60 * 60
++            });
++            if (progressRes?.message_id) {
++                try {
++                    if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                    else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                } catch {}
++            }
++            return await this.reply(msg);
++        } catch (err) {
++            logger.error(`[ZZZ-Plugin] 全卡池记录生成失败: ${err.message || err}`);
++            if (progressRes?.message_id) {
++                try {
++                    if (this.e.group?.recallMsg) await this.e.group.recallMsg(progressRes.message_id).catch(() => {});
++                    else if (this.e.recallMsg) await this.e.recallMsg(progressRes.message_id).catch(() => {});
++                } catch {}
++            }
++            return await this.reply(`查询全卡池记录失败：${err.message || '未知错误'}`);
+         }
+-        const data = await this.fetchData();
+-        if (!data)
+-            return this.reply('卡池历史记录数据获取失败');
+-        const versions = [...new Set(data.map(p => p.version.replace(/(上半|下半)$/u, '')))];
+-        const title = '绝区零全版本卡池记录';
+-        const replyMsg = [title, ...versions.map(v => this.generatePoolMsg(data, v, '')).filter(Boolean).reverse()];
+-        const msg = await common.makeForwardMsg(this.e, replyMsg, title);
+-        redis.set(this.queryAllPoolMsgCacheKey, JSON.stringify(msg), {
+-            EX: 7 * 24 * 60 * 60
+-        });
+-        return this.reply(msg);
+     }
+     async queryVersionPool() {
+         const data = await this.fetchData();
+@@ -235,60 +423,124 @@ export class PoolHistory extends ZZZPlugin {
+             replyMsg.push(`⏱️ ${timerDisplay}\n`);
+             if (rolePools.length > 0) {
+                 for (const p of rolePools) {
+-                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
+-                    replyMsg.push(`◈ 角色：S-${p.s} | A-${aRoles}\n`);
++                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
++                    replyMsg.push(`◈ 角色：S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
+                     replyMsg.push(segment.image(p.img));
+                 }
+             }
+             if (weaponPools.length > 0) {
+                 for (const p of weaponPools) {
+-                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
+-                    replyMsg.push(`◈ 音擎：S-${p.s} | A-${aWeapons}\n`);
++                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
++                    replyMsg.push(`◈ 音擎：S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
+                     replyMsg.push(segment.image(p.img));
+                 }
+             }
+         }
+         return replyMsg;
+     }
+-    async fetchData() {
+-        const cacheValid = await redis.get(this.dataCacheExpireKey);
+-        if (cacheValid) {
+-            const cache = await redis.get(this.dataCacheKey);
+-            if (cache) {
+-                return JSON.parse(cache);
+-            }
+-            redis.del(this.dataCacheExpireKey);
+-            redis.del(this.dataCacheKey);
++    async reloadPoolData() {
++        await redis.del(this.dataCacheKey);
++        await redis.del(this.dataCacheExpireKey);
++        await redis.del(this.queryAllPoolMsgCacheKey);
++        const data = await this.fetchData(true);
++        if (data && data.length > 0) {
++            const latest = data[data.length - 1];
++            return this.reply(`【绝区零卡池记录】\n✅ 已从远端同步最新卡池！\n共收录 ${data.length} 条记录，最新版本：${latest?.version || '未知'}`);
++        } else {
++            return this.reply('❌ 刷新卡池数据失败，请检查日志。');
+         }
+-        let rawData;
++    }
++    async fetchFromRemote() {
+         try {
+-            const response = await fetch(DATA_URL, {
+-                method: 'GET',
+-                headers: { 'Cache-Control': 'no-cache' },
+-                signal: AbortSignal.timeout(6000)
+-            });
+-            if (!response.ok) {
+-                throw new Error('请求失败：' + response.status);
++            const biliData = await fetchBiliWiki();
++            if (Array.isArray(biliData) && biliData.length > 0) {
++                return biliData;
++            }
++        } catch (e) {
++            logger.warn(`[ZZZ-Plugin] B站Wiki卡池接口获取异常: ${e.message}，尝试备选源`);
++        }
++        for (const url of DATA_URLS) {
++            try {
++                const response = await fetch(url, {
++                    method: 'GET',
++                    headers: { 'Cache-Control': 'no-cache' },
++                    signal: AbortSignal.timeout(5000)
++                });
++                if (response.ok) {
++                    const parsed = await response.json();
++                    if (Array.isArray(parsed) && parsed.length > 0) {
++                        return parsed;
++                    }
++                }
++            } catch (err) {
++                logger.warn(`[ZZZ-Plugin] 备选卡池数据源 ${url} 获取失败: ${err.message}`);
++            }
++        }
++        return null;
++    }
++    async fetchData(forceReload = false) {
++        if (!forceReload) {
++            const cacheValid = await redis.get(this.dataCacheExpireKey);
++            if (cacheValid) {
++                const cache = await redis.get(this.dataCacheKey);
++                if (cache) {
++                    try {
++                        const parsedCache = JSON.parse(cache);
++                        if (Array.isArray(parsedCache) && parsedCache.length > 0) {
++                            return parsedCache;
++                        }
++                    } catch {}
++                    await redis.del(this.dataCacheExpireKey);
++                    await redis.del(this.dataCacheKey);
++                    await redis.del(this.queryAllPoolMsgCacheKey);
++                }
++            }
++        }
++        const localPath = './plugins/ZZZ-Plugin/resources/history.json';
++        let rawData = null;
++        // 1. 优先从高可用远端源拉取（B站MediaWiki实时API -> 备选GitHub CDN）
++        rawData = await this.fetchFromRemote();
++        if (rawData && Array.isArray(rawData) && rawData.length > 0) {
++            // 远端拉取成功，自动同步覆盖本地文件作为紧急离线后备镜像
++            try {
++                fs.writeFileSync(localPath, JSON.stringify(rawData, null, 2), 'utf8');
++            } catch (e) {
++                logger.warn(`[ZZZ-Plugin] 同步本地离线卡池缓存失败: ${e.message}`);
++            }
++        } else {
++            // 2. 远端全部不可用时，降级使用本地离线镜像
++            logger.warn('[ZZZ-Plugin] 远端卡池源获取均未成功，降级读取本地离线数据');
++            if (fs.existsSync(localPath)) {
++                try {
++                    const localContent = fs.readFileSync(localPath, 'utf8');
++                    const parsed = JSON.parse(localContent);
++                    if (Array.isArray(parsed) && parsed.length > 0) {
++                        rawData = parsed;
++                    }
++                } catch (e) {
++                    logger.error(`[ZZZ-Plugin] 读取本地离线卡池文件失败: ${e.message}`);
++                }
+             }
+-            rawData = await response.json();
+         }
+-        catch (err) {
++        // 3. 兜底旧缓存
++        if (!rawData) {
+             const cache = await redis.get(this.dataCacheKey);
+-            logger.error(err);
+             if (cache) {
+                 return JSON.parse(cache);
+             }
+-            return this.reply(`卡池历史记录数据获取失败: ${err.message || err}`);
++            logger.error('[ZZZ-Plugin] 卡池历史数据获取失败: 远端与本地后备均不可用');
++            return null;
+         }
+         const data = this.processData(rawData);
+         if (data) {
+-            redis.set(this.dataCacheExpireKey, '1', {
++            await redis.set(this.dataCacheExpireKey, '1', {
+                 EX: 24 * 60 * 60
+             });
+-            redis.set(this.dataCacheKey, JSON.stringify(data));
+-            redis.del(this.queryAllPoolMsgCacheKey);
++            await redis.set(this.dataCacheKey, JSON.stringify(data));
++            await redis.del(this.queryAllPoolMsgCacheKey);
+             return data;
+         }
++        return null;
+     }
+     processData(data) {
+         if (!data.find(v => v.version === '1.0上半')) {
+diff --git a/dist/apps/rank.js b/dist/apps/rank.js
+index 08ce933..09a354b 100644
+--- a/dist/apps/rank.js
++++ b/dist/apps/rank.js
+@@ -153,6 +153,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群危局强袭战排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -243,6 +244,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群危局强袭战排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -332,6 +334,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群拟境湮灭战排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -421,6 +424,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群临界推演排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -474,7 +478,7 @@ export class Rank extends ZZZPlugin {
+             };
+         });
+         if (scoredData.length === 0) {
+-            return this.reply('没有危局强袭战排名，请先 %显示危局排名，并且用 %危局 查询战绩');
++            return this.reply('没有临界推演排名，请先 %显示临界排名，并且用 %临界 查询战绩');
+         }
+         scoredData.sort((a, b) => {
+             if (a.score.totalScore !== b.score.totalScore) {
+@@ -508,6 +512,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群爬塔S1排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -562,6 +567,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群爬塔S2排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -621,6 +627,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群爬塔S3排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+@@ -685,6 +692,7 @@ export class Rank extends ZZZPlugin {
+         }
+         if (!this.isGroupRankAllowed()) {
+             await this.reply('当前群爬塔S4排名功能已关闭！');
++            return;
+         }
+         const uidInGroupRank = await getUsersInGroupRank(rank_type, this.e.group_id);
+         const memberMap = await this.e.group?.getMemberMap() || new Map();
+diff --git a/dist/apps/remind.js b/dist/apps/remind.js
+old mode 100644
+new mode 100755
+index b805bd7..87b6abd
+--- a/dist/apps/remind.js
++++ b/dist/apps/remind.js
+@@ -21,11 +21,11 @@ export class Remind extends ZZZPlugin {
+                     permission: 'master'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置(全局)?式舆阈值\\s*(\\d+)`,
++                    reg: `${rulePrefix}设置(全局)?(式舆防卫战|式舆|深渊|防卫战|防卫)阈值\\s*(\\d+)`,
+                     fnc: 'setAbyssThreshold'
+                 },
+                 {
+-                    reg: `${rulePrefix}设置(全局)?危局阈值\\s*(\\d+)`,
++                    reg: `${rulePrefix}设置(全局)?(危局强袭战|危局|强袭|强袭战)阈值\\s*(\\d+)`,
+                     fnc: 'setDeadlyThreshold'
+                 },
+                 {
+@@ -204,7 +204,7 @@ export class Remind extends ZZZPlugin {
+         }
+         if (!isGlobal && !this.checkEnableAndFriend())
+             return;
+-        const match = this.e.msg.match(/设置(?:全局)?(?:危局强袭战|危局|强袭|强袭战)阈值\s*(\d+)/);
++        const match = this.e.msg.match(/设置(?:全局)?(?:危局强袭战|危局|强袭|强袭战)阈值\\s*(\\d+)/);
+         if (!match)
+             return;
+         const threshold = Number(match[1]);
