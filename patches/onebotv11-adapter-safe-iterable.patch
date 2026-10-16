@@ -1,0 +1,22 @@
+diff --git a/plugins/adapter/OneBotv11.js b/plugins/adapter/OneBotv11.js
+index 8f3f8d4..0fb0b0e 100644
+--- a/plugins/adapter/OneBotv11.js
++++ b/plugins/adapter/OneBotv11.js
+@@ -290,7 +290,7 @@ Bot.adapter.push(
+     }
+ 
+     async getFriendArray(data) {
+-      return (await data.bot.sendApi("get_friend_list")).data || []
++      const res = (await data.bot.sendApi("get_friend_list")).data; return Array.isArray(res) ? res : []
+     }
+ 
+     async getFriendList(data) {
+@@ -318,7 +318,7 @@ Bot.adapter.push(
+     }
+ 
+     async getGroupArray(data) {
+-      const array = (await data.bot.sendApi("get_group_list")).data
++      let array = (await data.bot.sendApi("get_group_list")).data; if (!Array.isArray(array)) array = [];
+       try {
+         for (const guild of await this.getGuildArray(data))
+           for (const channel of await this.getGuildChannelArray({
