@@ -78,6 +78,7 @@ zzz-bot/
 │   ├── miHoYoLogin.new.js             # 修复版米游社登录实现文件
 │   ├── miao-plugin-zzz-yield.patch    # Miao-Plugin 绝区零命名空间指令放行补丁
 │   ├── miao-App.patched.js            # 修复版 Miao-Plugin App.js 调度器
+│   ├── onebotv11-adapter-safe-iterable.patch # OneBotv11 协议适配器非数组响应安全加固补丁
 │   └── zzz-plugin-namespace-fixes.patch # ZZZ-Plugin 全量命名空间指令修复 Unified Diff
 ├── scripts/                  # 运维维护与补丁一键应用脚本
 │   ├── apply_patch.ps1                # 账号掩码补丁一键应用工具
