@@ -34,8 +34,8 @@ export class monthly extends ZZZPlugin {
         const { api, deviceFp } = await this.getAPI();
         await this.getPlayerInfo();
         const monthlyResponse = await getMonthly(api, deviceFp, this.getDateString(year, month)).catch((e) => {
-            this.reply(e.message);
-            throw e;
+            this.reply(e.message || '获取月报数据失败');
+            return null;
         });
         if (!monthlyResponse) {
             return this.reply('获取月报数据失败，请检查日期是否正确');
@@ -53,8 +53,8 @@ export class monthly extends ZZZPlugin {
         const { api, deviceFp } = await this.getAPI();
         await this.getPlayerInfo();
         const collect = await getMonthlyCollect(api, deviceFp).catch((e) => {
-            this.reply(e.message);
-            throw e;
+            this.reply(e.message || '获取月报统计失败');
+            return null;
         });
         if (!collect) {
             return this.reply('获取月报数据失败');

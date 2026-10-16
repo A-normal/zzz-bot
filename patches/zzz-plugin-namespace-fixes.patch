@@ -247,7 +247,7 @@ index 8c2a40c..37206d7 100644
 diff --git a/dist/apps/monthly.js b/dist/apps/monthly.js
 old mode 100644
 new mode 100755
-index 53e175e..8ec704d
+index 53e175e..77ab445
 --- a/dist/apps/monthly.js
 +++ b/dist/apps/monthly.js
 @@ -13,7 +13,7 @@ export class monthly extends ZZZPlugin {
@@ -259,7 +259,7 @@ index 53e175e..8ec704d
                      fnc: 'monthly'
                  },
                  {
-@@ -24,13 +24,13 @@ export class monthly extends ZZZPlugin {
+@@ -24,18 +24,18 @@ export class monthly extends ZZZPlugin {
          });
      }
      async monthly() {
@@ -276,6 +276,24 @@ index 53e175e..8ec704d
          const { api, deviceFp } = await this.getAPI();
          await this.getPlayerInfo();
          const monthlyResponse = await getMonthly(api, deviceFp, this.getDateString(year, month)).catch((e) => {
+-            this.reply(e.message);
+-            throw e;
++            this.reply(e.message || '获取月报数据失败');
++            return null;
+         });
+         if (!monthlyResponse) {
+             return this.reply('获取月报数据失败，请检查日期是否正确');
+@@ -53,8 +53,8 @@ export class monthly extends ZZZPlugin {
+         const { api, deviceFp } = await this.getAPI();
+         await this.getPlayerInfo();
+         const collect = await getMonthlyCollect(api, deviceFp).catch((e) => {
+-            this.reply(e.message);
+-            throw e;
++            this.reply(e.message || '获取月报统计失败');
++            return null;
+         });
+         if (!collect) {
+             return this.reply('获取月报数据失败');
 diff --git a/dist/apps/panel.js b/dist/apps/panel.js
 old mode 100644
 new mode 100755
