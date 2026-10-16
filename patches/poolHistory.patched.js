@@ -1,15 +1,120 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { aliasToName } from '../lib/convert/char.js';
 import common from '../../../../lib/common/common.js';
 import { rulePrefix } from '../lib/common.js';
 import { ZZZPlugin } from '../lib/plugin.js';
 import settings from '../lib/settings.js';
 import fetch from 'node-fetch';
+const require = createRequire(import.meta.url);
 const DATA_URLS = [
     'https://ghproxy.net/https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json',
     'https://raw.githubusercontent.com/iaoongin/GachaClock/main/spider/data/zzz/history.json'
 ];
+
+function getCheerio() {
+    const pnpmPath = path.resolve(process.cwd(), 'node_modules/.pnpm');
+    if (fs.existsSync(pnpmPath)) {
+        try {
+            const entries = fs.readdirSync(pnpmPath).filter(x => x.startsWith('cheerio@'));
+            if (entries.length) {
+                return require(path.resolve(pnpmPath, entries[0], 'node_modules/cheerio'));
+            }
+        } catch {}
+    }
+    try {
+        return require('cheerio');
+    } catch {
+        return null;
+    }
+}
+
+async function fetchBiliWiki() {
+    const cheerio = getCheerio();
+    if (!cheerio) return null;
+    const apiUrl = 'https://wiki.biligame.com/zzz/api.php?action=parse&page=%E8%B0%83%E9%A2%91&prop=text&format=json';
+    const res = await fetch(apiUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+            'Referer': 'https://wiki.biligame.com/zzz/',
+            'Accept': 'application/json, text/plain, */*'
+        },
+        signal: AbortSignal.timeout(10000)
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const html = json?.parse?.text?.['*'];
+    if (!html) return null;
+    const $ = cheerio.load(html);
+    const seen = new Set();
+    const items = [];
+    $('table').each((_, tb) => {
+        const $tb = $(tb);
+        if ($tb.find('table').length > 0) return;
+        const trs = $tb.find('tr');
+        if (trs.length < 3) return;
+        let timeText = null;
+        let versionText = null;
+        let sList = [];
+        let aList = [];
+        let titleText = '';
+        let imgSrc = '';
+        trs.each((idx, tr) => {
+            const $tr = $(tr);
+            const th = $tr.find('th').text().trim();
+            const td = $tr.find('td');
+            const tdText = td.text().trim();
+            if (idx === 0) {
+                titleText = $tr.text().trim().replace(/\n/g, '');
+                const img = $tr.find('img');
+                if (img.length) {
+                    imgSrc = img.attr('srcset')?.split(' ')[0] || img.attr('src') || '';
+                }
+            }
+            if (th.includes('时间')) {
+                timeText = tdText;
+            } else if (th.includes('版本')) {
+                versionText = tdText;
+            } else if (th.includes('S级') || th.includes('S 级')) {
+                td.find('a').each((_, a) => {
+                    const name = $(a).attr('title') || $(a).text().trim();
+                    if (name) sList.push(name);
+                });
+            } else if (th.includes('A级') || th.includes('A 级')) {
+                td.find('a').each((_, a) => {
+                    const name = $(a).attr('title') || $(a).text().trim();
+                    if (name) aList.push(name);
+                });
+            }
+        });
+        if (timeText && versionText && sList.length > 0) {
+            const isRole = titleText.includes('独家') || $tb.text().includes('代理人');
+            const type = isRole ? '角色' : '武器';
+            const cleanA = Array.from(new Set(aList.map(x => x.replace(/（.*）/, '').trim()))).sort();
+            for (const s of sList) {
+                const cleanS = s.replace(/（.*）/, '').trim();
+                const key = `${versionText}_${type}_${cleanS}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const defaultImg = isRole
+                    ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
+                    : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
+                items.push({
+                    img: imgSrc || defaultImg,
+                    title: titleText || `「${cleanS}」频段`,
+                    type,
+                    version: versionText,
+                    timer: timeText,
+                    s: cleanS,
+                    a: cleanA,
+                    img_path: `img/zzz/history/${titleText || cleanS}.png`
+                });
+            }
+        }
+    });
+    return items.length > 0 ? items : null;
+}
 export class PoolHistory extends ZZZPlugin {
     dataCacheKey;
     dataCacheExpireKey;
@@ -22,8 +127,8 @@ export class PoolHistory extends ZZZPlugin {
             priority: settings.getConfig('priority')?.panel ?? 70,
             rule: [
                 {
-                    reg: `${rulePrefix}.+(复刻|卡池)(统计|记录|历史)$`,
-                    fnc: 'dispatchHandler'
+                    reg: `${rulePrefix}(刷新|更新|重载)卡池(记录|历史)?$`,
+                    fnc: 'reloadPoolData'
                 },
                 {
                     reg: `${rulePrefix}(当前|本期|当期)?卡池$`,
@@ -38,8 +143,8 @@ export class PoolHistory extends ZZZPlugin {
                     fnc: 'queryVersionPool'
                 },
                 {
-                    reg: `${rulePrefix}(刷新|更新|重载)卡池(记录|历史)?$`,
-                    fnc: 'reloadPoolData'
+                    reg: `${rulePrefix}(?!刷新|更新|重载).+(复刻|卡池)(统计|记录|历史)$`,
+                    fnc: 'dispatchHandler'
                 }
             ]
         });
@@ -162,16 +267,16 @@ export class PoolHistory extends ZZZPlugin {
         if (rolePools.length > 0) {
             replyMsg.push(`\n【 角色调频 】\n`);
             rolePools.forEach(p => {
-                const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
-                replyMsg.push(`◈ S-${p.s} | A-${aRoles}\n`);
+                const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
+                replyMsg.push(`◈ S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
                 replyMsg.push(segment.image(p.img));
             });
         }
         if (weaponPools.length > 0) {
             replyMsg.push(`\n【 音擎调频 】\n`);
             weaponPools.forEach(p => {
-                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
-                replyMsg.push(`◈ S-${p.s} | A-${aWeapons}\n`);
+                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
+                replyMsg.push(`◈ S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
                 replyMsg.push(segment.image(p.img));
             });
         }
@@ -189,7 +294,7 @@ export class PoolHistory extends ZZZPlugin {
             if (old) {
                 try {
                     if (old.startsWith('{') || old.startsWith('[')) {
-                        redis.del(this.queryAllPoolMsgCacheKey);
+                        await redis.del(this.queryAllPoolMsgCacheKey);
                     } else {
                         if (progressRes?.message_id) {
                             try {
@@ -200,7 +305,7 @@ export class PoolHistory extends ZZZPlugin {
                         return await this.reply(old);
                     }
                 } catch {
-                    redis.del(this.queryAllPoolMsgCacheKey);
+                    await redis.del(this.queryAllPoolMsgCacheKey);
                 }
             }
             const data = await this.fetchData();
@@ -318,15 +423,15 @@ export class PoolHistory extends ZZZPlugin {
             replyMsg.push(`⏱️ ${timerDisplay}\n`);
             if (rolePools.length > 0) {
                 for (const p of rolePools) {
-                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
-                    replyMsg.push(`◈ 角色：S-${p.s} | A-${aRoles}\n`);
+                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
+                    replyMsg.push(`◈ 角色：S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
                     replyMsg.push(segment.image(p.img));
                 }
             }
             if (weaponPools.length > 0) {
                 for (const p of weaponPools) {
-                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
-                    replyMsg.push(`◈ 音擎：S-${p.s} | A-${aWeapons}\n`);
+                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
+                    replyMsg.push(`◈ 音擎：S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
                     replyMsg.push(segment.image(p.img));
                 }
             }
@@ -339,11 +444,39 @@ export class PoolHistory extends ZZZPlugin {
         await redis.del(this.queryAllPoolMsgCacheKey);
         const data = await this.fetchData(true);
         if (data && data.length > 0) {
-            const versions = [...new Set(data.map(p => p.version))];
-            return this.reply(`【绝区零卡池记录】\n✅ 卡池数据刷新成功！\n共收录 ${data.length} 条记录，覆盖版本：${versions[0]} ~ ${versions[versions.length - 1]}`);
+            const latest = data[data.length - 1];
+            return this.reply(`【绝区零卡池记录】\n✅ 已从远端同步最新卡池！\n共收录 ${data.length} 条记录，最新版本：${latest?.version || '未知'}`);
         } else {
             return this.reply('❌ 刷新卡池数据失败，请检查日志。');
         }
+    }
+    async fetchFromRemote() {
+        try {
+            const biliData = await fetchBiliWiki();
+            if (Array.isArray(biliData) && biliData.length > 0) {
+                return biliData;
+            }
+        } catch (e) {
+            logger.warn(`[ZZZ-Plugin] B站Wiki卡池接口获取异常: ${e.message}，尝试备选源`);
+        }
+        for (const url of DATA_URLS) {
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Cache-Control': 'no-cache' },
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (response.ok) {
+                    const parsed = await response.json();
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return parsed;
+                    }
+                }
+            } catch (err) {
+                logger.warn(`[ZZZ-Plugin] 备选卡池数据源 ${url} 获取失败: ${err.message}`);
+            }
+        }
+        return null;
     }
     async fetchData(forceReload = false) {
         if (!forceReload) {
@@ -351,42 +484,41 @@ export class PoolHistory extends ZZZPlugin {
             if (cacheValid) {
                 const cache = await redis.get(this.dataCacheKey);
                 if (cache) {
-                    return JSON.parse(cache);
+                    try {
+                        const parsedCache = JSON.parse(cache);
+                        if (Array.isArray(parsedCache) && parsedCache.length > 0) {
+                            return parsedCache;
+                        }
+                    } catch {}
+                    await redis.del(this.dataCacheExpireKey);
+                    await redis.del(this.dataCacheKey);
+                    await redis.del(this.queryAllPoolMsgCacheKey);
                 }
-                redis.del(this.dataCacheExpireKey);
-                redis.del(this.dataCacheKey);
             }
         }
-        let rawData;
-        // 1. 优先读取本地完整维护的 resources/history.json
         const localPath = './plugins/ZZZ-Plugin/resources/history.json';
-        if (fs.existsSync(localPath)) {
+        let rawData = null;
+        // 1. 优先从高可用远端源拉取（B站MediaWiki实时API -> 备选GitHub CDN）
+        rawData = await this.fetchFromRemote();
+        if (rawData && Array.isArray(rawData) && rawData.length > 0) {
+            // 远端拉取成功，自动同步覆盖本地文件作为紧急离线后备镜像
             try {
-                const localContent = fs.readFileSync(localPath, 'utf8');
-                const parsed = JSON.parse(localContent);
-                if (Array.isArray(parsed) && parsed.length >= 100) {
-                    rawData = parsed;
-                }
+                fs.writeFileSync(localPath, JSON.stringify(rawData, null, 2), 'utf8');
             } catch (e) {
-                logger.warn(`[ZZZ-Plugin] 读取本地卡池历史文件失败: ${e.message}`);
+                logger.warn(`[ZZZ-Plugin] 同步本地离线卡池缓存失败: ${e.message}`);
             }
-        }
-        // 2. 本地不可用时尝试远程 URL 备选
-        if (!rawData) {
-            let lastErr = null;
-            for (const url of DATA_URLS) {
+        } else {
+            // 2. 远端全部不可用时，降级使用本地离线镜像
+            logger.warn('[ZZZ-Plugin] 远端卡池源获取均未成功，降级读取本地离线数据');
+            if (fs.existsSync(localPath)) {
                 try {
-                    const response = await fetch(url, {
-                        method: 'GET',
-                        headers: { 'Cache-Control': 'no-cache' },
-                        signal: AbortSignal.timeout(5000)
-                    });
-                    if (response.ok) {
-                        rawData = await response.json();
-                        break;
+                    const localContent = fs.readFileSync(localPath, 'utf8');
+                    const parsed = JSON.parse(localContent);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        rawData = parsed;
                     }
-                } catch (err) {
-                    lastErr = err;
+                } catch (e) {
+                    logger.error(`[ZZZ-Plugin] 读取本地离线卡池文件失败: ${e.message}`);
                 }
             }
         }
@@ -396,18 +528,19 @@ export class PoolHistory extends ZZZPlugin {
             if (cache) {
                 return JSON.parse(cache);
             }
-            logger.error('[ZZZ-Plugin] 卡池历史数据获取失败: 本地或网络数据源均不可用');
-            return this.reply('卡池历史记录数据获取失败: 本地或网络数据源均不可用');
+            logger.error('[ZZZ-Plugin] 卡池历史数据获取失败: 远端与本地后备均不可用');
+            return null;
         }
         const data = this.processData(rawData);
         if (data) {
-            redis.set(this.dataCacheExpireKey, '1', {
+            await redis.set(this.dataCacheExpireKey, '1', {
                 EX: 24 * 60 * 60
             });
-            redis.set(this.dataCacheKey, JSON.stringify(data));
-            redis.del(this.queryAllPoolMsgCacheKey);
+            await redis.set(this.dataCacheKey, JSON.stringify(data));
+            await redis.del(this.queryAllPoolMsgCacheKey);
             return data;
         }
+        return null;
     }
     processData(data) {
         if (!data.find(v => v.version === '1.0上半')) {
