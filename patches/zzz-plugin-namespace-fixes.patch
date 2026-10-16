@@ -1,3 +1,53 @@
+diff --git a/dist/apps/card.js b/dist/apps/card.js
+old mode 100644
+new mode 100755
+index 6f47b30..1af1bba
+--- a/dist/apps/card.js
++++ b/dist/apps/card.js
+@@ -12,7 +12,7 @@ export class Card extends ZZZPlugin {
+             priority: _.get(settings.getConfig('priority'), 'card', 70),
+             rule: [
+                 {
+-                    reg: `${rulePrefix}(card|卡片|个人信息|角色)$`,
++                    reg: `${rulePrefix}(card|卡片|个人信息|角色|战绩)$`,
+                     fnc: 'card'
+                 }
+             ]
+@@ -24,8 +24,8 @@ export class Card extends ZZZPlugin {
+         const indexData = await api.getFinalData('zzzIndex', {
+             deviceFp
+         }).catch((e) => {
+-            this.reply(e.message);
+-            throw e;
++            this.reply(e.message || '获取个人战绩信息失败');
++            return null;
+         });
+         if (!indexData)
+             return false;
+diff --git a/dist/apps/damage.js b/dist/apps/damage.js
+old mode 100644
+new mode 100755
+index 92f59fe..1ddcd57
+--- a/dist/apps/damage.js
++++ b/dist/apps/damage.js
+@@ -12,7 +12,7 @@ export class Damage extends ZZZPlugin {
+             priority: settings.getConfig('priority')?.panel ?? 70,
+             rule: [
+                 {
+-                    reg: `${rulePrefix}(.+)伤害\\d*$`,
++                    reg: `${rulePrefix}(.+)(伤害|评分)\\d*$`,
+                     fnc: 'charDamagePanel'
+                 }
+             ]
+@@ -23,7 +23,7 @@ export class Damage extends ZZZPlugin {
+         if (!uid) {
+             return this.reply('UID为空');
+         }
+-        const reg = new RegExp(`${rulePrefix}(.+)伤害(\\d*)$`);
++        const reg = new RegExp(`${rulePrefix}(.+)(?:伤害|评分)(\\d*)$`);
+         const match = this.e.msg.match(reg);
+         if (!match)
+             return false;
 diff --git a/dist/apps/gachalog.js b/dist/apps/gachalog.js
 old mode 100644
 new mode 100755
@@ -104,6 +154,48 @@ index 3d79cfb..9d4acea
      }
      async getLogWithOutUID(key, region, game_biz) {
          await this.reply('抽卡链接解析成功，正在查询抽卡记录，可能耗费一段时间，请勿重复发送', false, { at: true, recallMsg: getRecallMsg() });
+diff --git a/dist/apps/help.js b/dist/apps/help.js
+old mode 100644
+new mode 100755
+index ccd8a42..6104faf
+--- a/dist/apps/help.js
++++ b/dist/apps/help.js
+@@ -102,11 +102,18 @@ const helpData = [
+                 commands: ['面板', '面板列表'],
+             },
+             {
+-                title: '查看角色面板',
+-                desc: '查看角色详细面板/技能伤害信息',
++                title: '查看角色面板/评分',
++                desc: '查看角色详细面板、驱动盘词条评分与技能期望伤害',
+                 needCK: false,
+                 needSK: false,
+-                commands: ['角色名+面板', '角色名+伤害'],
++                commands: ['角色名+面板', '角色名+伤害', '角色名+评分'],
++            },
++            {
++                title: '角色换装指引',
++                desc: '查看绝区零角色面板自定义插画与同人换装设置指引',
++                needCK: false,
++                needSK: false,
++                commands: ['换装', '角色名+换装'],
+             },
+             {
+                 title: '查看角色面板图',
+@@ -135,6 +142,13 @@ const helpData = [
+         title: '战绩查询',
+         icon: 'Ether',
+         items: [
++            {
++                title: '个人综合战绩卡片',
++                desc: '查看米游社绳匠个人综合数据卡片、代理人与邦布列表',
++                needCK: true,
++                needSK: false,
++                commands: ['战绩', '角色', '卡片', '个人信息'],
++            },
+             {
+                 title: '查看式舆防卫战',
+                 desc: '查看式舆防卫战(深渊)信息',
 diff --git a/dist/apps/manage.js b/dist/apps/manage.js
 old mode 100644
 new mode 100755
@@ -297,10 +389,21 @@ index 53e175e..77ab445
 diff --git a/dist/apps/panel.js b/dist/apps/panel.js
 old mode 100644
 new mode 100755
-index 7ac6a17..13b52de
+index 7ac6a17..2172c56
 --- a/dist/apps/panel.js
 +++ b/dist/apps/panel.js
-@@ -56,28 +56,56 @@ export class Panel extends ZZZPlugin {
+@@ -24,6 +24,10 @@ export class Panel extends ZZZPlugin {
+                 {
+                     reg: `${rulePrefix}原图$`,
+                     fnc: 'getCharOriImage'
++                },
++                {
++                    reg: `${rulePrefix}(?:(.*)换装|换装(.*))$`,
++                    fnc: 'customSkinHelp'
+                 }
+             ],
+             handler: [
+@@ -56,28 +60,56 @@ export class Panel extends ZZZPlugin {
          const panelSettings = settings.getConfig('panel');
          const coldTime = _.get(panelSettings, 'interval', 300);
          if (lastQueryTime && Date.now() - Number(lastQueryTime) < 1000 * coldTime) {
@@ -361,7 +464,7 @@ index 7ac6a17..13b52de
              }
          }
          else {
-@@ -89,7 +117,7 @@ export class Panel extends ZZZPlugin {
+@@ -89,7 +121,7 @@ export class Panel extends ZZZPlugin {
              };
              try {
                  const { api, deviceFp } = await this.getAPI();
@@ -370,7 +473,7 @@ index 7ac6a17..13b52de
                  await this.getPlayerInfo();
                  await redis.set(`ZZZ:PANEL:${uid}:LASTTIME`, Date.now());
                  result = await refreshPanelFunction(api, deviceFp);
-@@ -100,23 +128,41 @@ export class Panel extends ZZZPlugin {
+@@ -100,23 +132,41 @@ export class Panel extends ZZZPlugin {
              }
              this.reply = oriReply;
              if (errorMsg && !result) {
@@ -415,10 +518,31 @@ index 7ac6a17..13b52de
          }
          const hasCk = !!(await getCk(this.e));
          await this.getPlayerInfo(hasCk ? undefined : parsePlayerInfo({ uid }));
+@@ -255,6 +305,20 @@ export class Panel extends ZZZPlugin {
+         };
+         await this.render('proficiency/index.html', finalData);
+     }
++    async customSkinHelp() {
++        const match = this.e.msg.match(new RegExp(`${rulePrefix}(?:(.*)换装|换装(.*))$`));
++        const charName = (match?.[4] || match?.[5] || '').trim();
++        const tip = [
++            '【绝区零角色自定义换装/角色图指引】',
++            charName ? `当前查询角色：【${charName}】` : '功能说明：绝区零面板支持自定义角色插画与同人换装',
++            '💡 常用指令：',
++            '1. 查看已有角色图：%查看' + (charName || '角色名') + '面板图',
++            '2. 添加自定义换装：发送图片并附带文字「%添加' + (charName || '角色名') + '面板图」',
++            '3. 删除自定义换装：%删除' + (charName || '角色名') + '面板图[ID]',
++            '4. 获取原图：回复面板图片并发送「%原图」'
++        ].join('\n');
++        return await this.reply(tip);
++    }
+     async getCharOriImage() {
+         let source;
+         if (this.e.getReply) {
 diff --git a/dist/apps/poolHistory.js b/dist/apps/poolHistory.js
 old mode 100644
 new mode 100755
-index eb95405..70bb1fb
+index eb95405..4bddabb
 --- a/dist/apps/poolHistory.js
 +++ b/dist/apps/poolHistory.js
 @@ -1,10 +1,120 @@
@@ -517,25 +641,25 @@ index eb95405..70bb1fb
 +            const isRole = titleText.includes('独家') || $tb.text().includes('代理人');
 +            const type = isRole ? '角色' : '武器';
 +            const cleanA = Array.from(new Set(aList.map(x => x.replace(/（.*）/, '').trim()))).sort();
-+            for (const s of sList) {
-+                const cleanS = s.replace(/（.*）/, '').trim();
-+                const key = `${versionText}_${type}_${cleanS}`;
-+                if (seen.has(key)) continue;
-+                seen.add(key);
-+                const defaultImg = isRole
-+                    ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
-+                    : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
-+                items.push({
-+                    img: imgSrc || defaultImg,
-+                    title: titleText || `「${cleanS}」频段`,
-+                    type,
-+                    version: versionText,
-+                    timer: timeText,
-+                    s: cleanS,
-+                    a: cleanA,
-+                    img_path: `img/zzz/history/${titleText || cleanS}.png`
-+                });
-+            }
++            const cleanSList = sList.map(x => x.replace(/（.*）/, '').trim()).filter(Boolean);
++            const sDisplay = cleanSList.join('、');
++            const key = `${versionText}_${type}_${sDisplay}`;
++            if (seen.has(key)) return;
++            seen.add(key);
++            const defaultImg = isRole
++                ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
++                : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
++            items.push({
++                img: imgSrc || defaultImg,
++                title: titleText || `「${sDisplay}」频段`,
++                type,
++                version: versionText,
++                timer: timeText,
++                s: sDisplay,
++                s_list: cleanSList,
++                a: cleanA,
++                img_path: `img/zzz/history/${titleText || sDisplay}.png`
++            });
 +        }
 +    });
 +    return items.length > 0 ? items : null;
@@ -565,28 +689,62 @@ index eb95405..70bb1fb
                  }
              ]
          });
-@@ -153,42 +267,116 @@ export class PoolHistory extends ZZZPlugin {
+@@ -138,57 +252,138 @@ export class PoolHistory extends ZZZPlugin {
+         });
+         if (activePools.length === 0)
+             return this.reply('当前没有正在进行的活动卡池。');
+-        const replyMsg = [`=== 📅 绝区零本期卡池 ===\n`];
+-        if (activePools.length > 0) {
+-            const sample = activePools[0];
+-            const { endTime } = this.parseTime(sample);
+-            const remainingDays = Math.ceil((endTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+-            replyMsg.push(`版本：v${sample.version}\n时间：${sample.timer}\n时间：剩余约${remainingDays}天\n`);
+-        }
++        
++        const textLines = ['=== 📅 绝区零本期卡池 ===\n'];
++        const sample = activePools[0];
++        const { endTime } = this.parseTime(sample);
++        const remainingDays = Math.ceil((endTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
++        textLines.push(`版本：v${sample.version}\n周期：${sample.timer}\n状态：剩余约 ${remainingDays} 天\n`);
++        
+         const rolePools = activePools.filter(p => p.type === '角色');
+         const weaponPools = activePools.filter(p => p.type === '武器');
+         if (!rolePools.length && !weaponPools.length) {
+             return this.reply('暂无卡池数据信息');
+         }
++        
          if (rolePools.length > 0) {
-             replyMsg.push(`\n【 角色调频 】\n`);
+-            replyMsg.push(`\n【 角色调频 】\n`);
++            textLines.push('【 角色调频 (独家频段) 】');
              rolePools.forEach(p => {
 -                const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
 -                replyMsg.push(`◈ S-${p.s} | A-${aRoles}\n`);
+-                replyMsg.push(segment.image(p.img));
 +                const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-+                replyMsg.push(`◈ S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
-                 replyMsg.push(segment.image(p.img));
++                textLines.push(`◈ S级代理人：${p.s}${aRoles ? ' | A级：' + aRoles : ''}`);
              });
++            textLines.push('');
          }
          if (weaponPools.length > 0) {
-             replyMsg.push(`\n【 音擎调频 】\n`);
+-            replyMsg.push(`\n【 音擎调频 】\n`);
++            textLines.push('【 音擎调频 (音擎频段) 】');
              weaponPools.forEach(p => {
 -                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
 -                replyMsg.push(`◈ S-${p.s} | A-${aWeapons}\n`);
+-                replyMsg.push(segment.image(p.img));
 +                const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-+                replyMsg.push(`◈ S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
-                 replyMsg.push(segment.image(p.img));
++                textLines.push(`◈ S级音擎：${p.s}${aWeapons ? ' | A级：' + aWeapons : ''}`);
              });
          }
-         return this.reply(replyMsg);
+-        return this.reply(replyMsg);
++        
++        // 单消息聚合：选择当期代表性卡池海报作为首图（优先角色独家频段海报）
++        const primaryImg = rolePools[0]?.img || weaponPools[0]?.img;
++        const msgText = textLines.join('\n').trim();
++        if (primaryImg) {
++            return this.reply([segment.image(primaryImg), '\n' + msgText]);
++        }
++        return this.reply(msgText);
      }
      async queryAllPool() {
 -        const old = await redis.get(this.queryAllPoolMsgCacheKey);
@@ -703,28 +861,62 @@ index eb95405..70bb1fb
      }
      async queryVersionPool() {
          const data = await this.fetchData();
-@@ -235,60 +423,124 @@ export class PoolHistory extends ZZZPlugin {
-             replyMsg.push(`⏱️ ${timerDisplay}\n`);
+@@ -223,72 +418,152 @@ export class PoolHistory extends ZZZPlugin {
+                 return 1;
+             return a.localeCompare(b);
+         });
+-        const replyMsg = [`【 绝区零 v${versionStages.length === 1 ? versionStages[0] : version} 卡池 】\n`];
++        
++        const lines = [`【 绝区零 v${versionStages.length === 1 ? versionStages[0] : version} 卡池 】\n`];
++        let primaryImg = null;
++        
+         for (const stage of versionStages) {
+             const stagePools = pools.filter(p => p.version === stage);
+             const timerDisplay = stagePools[0]?.timer?.replace(/ \d{2}:\d{2}:\d{2}/g, '');
+             const rolePools = stagePools.filter(p => p.type === '角色');
+             const weaponPools = stagePools.filter(p => p.type === '武器');
++            
+             if (versionStages.length > 1) {
+-                replyMsg.push(`【 ${stage} 】\n`);
++                lines.push(`【 ${stage} 】`);
++            }
++            if (timerDisplay) {
++                lines.push(`⏱️ 周期：${timerDisplay}`);
+             }
+-            replyMsg.push(`⏱️ ${timerDisplay}\n`);
++            
              if (rolePools.length > 0) {
++                lines.push('◈ 角色调频 (独家频段)：');
                  for (const p of rolePools) {
 -                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : p.a;
 -                    replyMsg.push(`◈ 角色：S-${p.s} | A-${aRoles}\n`);
+-                    replyMsg.push(segment.image(p.img));
 +                    const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-+                    replyMsg.push(`◈ 角色：S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
-                     replyMsg.push(segment.image(p.img));
++                    lines.push(`   · S级：${p.s}${aRoles ? ' | A级：' + aRoles : ''}`);
++                    if (!primaryImg && p.img) primaryImg = p.img;
                  }
              }
              if (weaponPools.length > 0) {
++                lines.push('◈ 音擎调频 (音擎频段)：');
                  for (const p of weaponPools) {
 -                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : p.a;
 -                    replyMsg.push(`◈ 音擎：S-${p.s} | A-${aWeapons}\n`);
+-                    replyMsg.push(segment.image(p.img));
 +                    const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-+                    replyMsg.push(`◈ 音擎：S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
-                     replyMsg.push(segment.image(p.img));
++                    lines.push(`   · S级：${p.s}${aWeapons ? ' | A级：' + aWeapons : ''}`);
++                    if (!primaryImg && p.img) primaryImg = p.img;
                  }
              }
++            lines.push('');
          }
-         return replyMsg;
+-        return replyMsg;
++        
++        const textMsg = lines.join('\n').trim();
++        // 单消息聚合响应：首张海报图片 + 完整规格文本合并为单条 OneBot 消息
++        if (primaryImg) {
++            return [segment.image(primaryImg), '\n' + textMsg];
++        }
++        return textMsg;
      }
 -    async fetchData() {
 -        const cacheValid = await redis.get(this.dataCacheExpireKey);

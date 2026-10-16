@@ -42,5 +42,6 @@ desktop.ini
 *.swo
 *~
 
-# Internal debug reports & audit archives
-docx/
+# Internal debug reports & audit archives (keep docx tracked for project requirements)
+!docx/
+!docx/**

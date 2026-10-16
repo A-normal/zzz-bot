@@ -24,6 +24,10 @@ export class Panel extends ZZZPlugin {
                 {
                     reg: `${rulePrefix}原图$`,
                     fnc: 'getCharOriImage'
+                },
+                {
+                    reg: `${rulePrefix}(?:(.*)换装|换装(.*))$`,
+                    fnc: 'customSkinHelp'
                 }
             ],
             handler: [
@@ -300,6 +304,20 @@ export class Panel extends ZZZPlugin {
             list: result
         };
         await this.render('proficiency/index.html', finalData);
+    }
+    async customSkinHelp() {
+        const match = this.e.msg.match(new RegExp(`${rulePrefix}(?:(.*)换装|换装(.*))$`));
+        const charName = (match?.[4] || match?.[5] || '').trim();
+        const tip = [
+            '【绝区零角色自定义换装/角色图指引】',
+            charName ? `当前查询角色：【${charName}】` : '功能说明：绝区零面板支持自定义角色插画与同人换装',
+            '💡 常用指令：',
+            '1. 查看已有角色图：%查看' + (charName || '角色名') + '面板图',
+            '2. 添加自定义换装：发送图片并附带文字「%添加' + (charName || '角色名') + '面板图」',
+            '3. 删除自定义换装：%删除' + (charName || '角色名') + '面板图[ID]',
+            '4. 获取原图：回复面板图片并发送「%原图」'
+        ].join('\n');
+        return await this.reply(tip);
     }
     async getCharOriImage() {
         let source;

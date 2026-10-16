@@ -92,25 +92,25 @@ async function fetchBiliWiki() {
             const isRole = titleText.includes('独家') || $tb.text().includes('代理人');
             const type = isRole ? '角色' : '武器';
             const cleanA = Array.from(new Set(aList.map(x => x.replace(/（.*）/, '').trim()))).sort();
-            for (const s of sList) {
-                const cleanS = s.replace(/（.*）/, '').trim();
-                const key = `${versionText}_${type}_${cleanS}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                const defaultImg = isRole
-                    ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
-                    : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
-                items.push({
-                    img: imgSrc || defaultImg,
-                    title: titleText || `「${cleanS}」频段`,
-                    type,
-                    version: versionText,
-                    timer: timeText,
-                    s: cleanS,
-                    a: cleanA,
-                    img_path: `img/zzz/history/${titleText || cleanS}.png`
-                });
-            }
+            const cleanSList = sList.map(x => x.replace(/（.*）/, '').trim()).filter(Boolean);
+            const sDisplay = cleanSList.join('、');
+            const key = `${versionText}_${type}_${sDisplay}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const defaultImg = isRole
+                ? 'https://patchwiki.biligame.com/images/zzz/thumb/7/7f/8pesvtvchbs3t2jhqjhckd9k08pe7ui.png/900px-%E7%8B%AC%E5%AE%B6%E9%A2%91%E6%AE%B5001%E6%9C%9F.png'
+                : 'https://patchwiki.biligame.com/images/zzz/thumb/3/32/gs2uajlo6v2h6pljzij84wdiwhu9fkj.png/900px-%E9%9F%B3%E6%93%8E%E9%A2%91%E6%AE%B5001%E6%9C%9F.png';
+            items.push({
+                img: imgSrc || defaultImg,
+                title: titleText || `「${sDisplay}」频段`,
+                type,
+                version: versionText,
+                timer: timeText,
+                s: sDisplay,
+                s_list: cleanSList,
+                a: cleanA,
+                img_path: `img/zzz/history/${titleText || sDisplay}.png`
+            });
         }
     });
     return items.length > 0 ? items : null;
@@ -252,35 +252,42 @@ export class PoolHistory extends ZZZPlugin {
         });
         if (activePools.length === 0)
             return this.reply('当前没有正在进行的活动卡池。');
-        const replyMsg = [`=== 📅 绝区零本期卡池 ===\n`];
-        if (activePools.length > 0) {
-            const sample = activePools[0];
-            const { endTime } = this.parseTime(sample);
-            const remainingDays = Math.ceil((endTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            replyMsg.push(`版本：v${sample.version}\n时间：${sample.timer}\n时间：剩余约${remainingDays}天\n`);
-        }
+        
+        const textLines = ['=== 📅 绝区零本期卡池 ===\n'];
+        const sample = activePools[0];
+        const { endTime } = this.parseTime(sample);
+        const remainingDays = Math.ceil((endTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        textLines.push(`版本：v${sample.version}\n周期：${sample.timer}\n状态：剩余约 ${remainingDays} 天\n`);
+        
         const rolePools = activePools.filter(p => p.type === '角色');
         const weaponPools = activePools.filter(p => p.type === '武器');
         if (!rolePools.length && !weaponPools.length) {
             return this.reply('暂无卡池数据信息');
         }
+        
         if (rolePools.length > 0) {
-            replyMsg.push(`\n【 角色调频 】\n`);
+            textLines.push('【 角色调频 (独家频段) 】');
             rolePools.forEach(p => {
                 const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-                replyMsg.push(`◈ S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
-                replyMsg.push(segment.image(p.img));
+                textLines.push(`◈ S级代理人：${p.s}${aRoles ? ' | A级：' + aRoles : ''}`);
             });
+            textLines.push('');
         }
         if (weaponPools.length > 0) {
-            replyMsg.push(`\n【 音擎调频 】\n`);
+            textLines.push('【 音擎调频 (音擎频段) 】');
             weaponPools.forEach(p => {
                 const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-                replyMsg.push(`◈ S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
-                replyMsg.push(segment.image(p.img));
+                textLines.push(`◈ S级音擎：${p.s}${aWeapons ? ' | A级：' + aWeapons : ''}`);
             });
         }
-        return this.reply(replyMsg);
+        
+        // 单消息聚合：选择当期代表性卡池海报作为首图（优先角色独家频段海报）
+        const primaryImg = rolePools[0]?.img || weaponPools[0]?.img;
+        const msgText = textLines.join('\n').trim();
+        if (primaryImg) {
+            return this.reply([segment.image(primaryImg), '\n' + msgText]);
+        }
+        return this.reply(msgText);
     }
     async queryAllPool() {
         let progressRes = null;
@@ -411,32 +418,48 @@ export class PoolHistory extends ZZZPlugin {
                 return 1;
             return a.localeCompare(b);
         });
-        const replyMsg = [`【 绝区零 v${versionStages.length === 1 ? versionStages[0] : version} 卡池 】\n`];
+        
+        const lines = [`【 绝区零 v${versionStages.length === 1 ? versionStages[0] : version} 卡池 】\n`];
+        let primaryImg = null;
+        
         for (const stage of versionStages) {
             const stagePools = pools.filter(p => p.version === stage);
             const timerDisplay = stagePools[0]?.timer?.replace(/ \d{2}:\d{2}:\d{2}/g, '');
             const rolePools = stagePools.filter(p => p.type === '角色');
             const weaponPools = stagePools.filter(p => p.type === '武器');
+            
             if (versionStages.length > 1) {
-                replyMsg.push(`【 ${stage} 】\n`);
+                lines.push(`【 ${stage} 】`);
             }
-            replyMsg.push(`⏱️ ${timerDisplay}\n`);
+            if (timerDisplay) {
+                lines.push(`⏱️ 周期：${timerDisplay}`);
+            }
+            
             if (rolePools.length > 0) {
+                lines.push('◈ 角色调频 (独家频段)：');
                 for (const p of rolePools) {
                     const aRoles = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-                    replyMsg.push(`◈ 角色：S-${p.s}${aRoles ? ' | A-' + aRoles : ''}\n`);
-                    replyMsg.push(segment.image(p.img));
+                    lines.push(`   · S级：${p.s}${aRoles ? ' | A级：' + aRoles : ''}`);
+                    if (!primaryImg && p.img) primaryImg = p.img;
                 }
             }
             if (weaponPools.length > 0) {
+                lines.push('◈ 音擎调频 (音擎频段)：');
                 for (const p of weaponPools) {
                     const aWeapons = Array.isArray(p.a) ? p.a.join('，') : (p.a || '');
-                    replyMsg.push(`◈ 音擎：S-${p.s}${aWeapons ? ' | A-' + aWeapons : ''}\n`);
-                    replyMsg.push(segment.image(p.img));
+                    lines.push(`   · S级：${p.s}${aWeapons ? ' | A级：' + aWeapons : ''}`);
+                    if (!primaryImg && p.img) primaryImg = p.img;
                 }
             }
+            lines.push('');
         }
-        return replyMsg;
+        
+        const textMsg = lines.join('\n').trim();
+        // 单消息聚合响应：首张海报图片 + 完整规格文本合并为单条 OneBot 消息
+        if (primaryImg) {
+            return [segment.image(primaryImg), '\n' + textMsg];
+        }
+        return textMsg;
     }
     async reloadPoolData() {
         await redis.del(this.dataCacheKey);

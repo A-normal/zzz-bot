@@ -33,7 +33,12 @@ $pluginFiles = @(
     @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\manage.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/manage.js" },
     @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\manage\panel.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/manage/panel.js" },
     @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\manage\guides.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/manage/guides.js" },
-    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\manage\config.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/manage/config.js" }
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\manage\config.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/manage/config.js" },
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\card.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/card.js" },
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\damage.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/damage.js" },
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\panel.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/panel.js" },
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\poolHistory.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/poolHistory.js" },
+    @{ Src = "$WorkspaceRoot\plugins\ZZZ-Plugin\apps\help.js"; Dst = "/root/Yunzai/plugins/ZZZ-Plugin/dist/apps/help.js" }
 )
 
 foreach ($f in $pluginFiles) {
@@ -45,17 +50,18 @@ foreach ($f in $pluginFiles) {
     }
 }
 
-# 3. 注入 miao-plugin 路由让渡修复
-Write-Host "`n[3/5] 注入 miao-plugin 路由让渡修复..." -ForegroundColor Yellow
+# 3. 注入 miao-plugin 路由让渡修复与 OneBot 适配器补丁
+Write-Host "`n[3/5] 注入 miao-plugin 路由让渡修复与 OneBot 适配器补丁..." -ForegroundColor Yellow
 $miaoAppSrc = "$WorkspaceRoot\patches\miao-App.patched.js"
 if (Test-Path $miaoAppSrc) {
     Write-Host "  -> 写入 /root/Yunzai/plugins/miao-plugin/components/App.js"
     docker cp $miaoAppSrc "$ContainerName`:/root/Yunzai/plugins/miao-plugin/components/App.js"
 }
 
-# 4. 重启容器并验证语法
-Write-Host "`n[4/5] 语法检查与重启生效..." -ForegroundColor Yellow
-docker exec -w /root/Yunzai $ContainerName node -c plugins/ZZZ-Plugin/dist/apps/manage.js plugins/ZZZ-Plugin/dist/apps/monthly.js plugins/ZZZ-Plugin/dist/apps/remind.js
+# 4. 清理 Redis 缓存、语法检查与重启生效
+Write-Host "`n[4/5] 清理缓存、语法检查与重启生效..." -ForegroundColor Yellow
+docker exec $ContainerName node -e "const redis = require('./lib/common/redis.js'); (async () => { await redis.del('ZZZ:PoolHistory:Data'); await redis.del('ZZZ:PoolHistory:Data:Expire'); await redis.del('ZZZ:PoolHistory:queryAllPoolMsg'); process.exit(0); })()"
+docker exec -w /root/Yunzai $ContainerName node -c plugins/ZZZ-Plugin/dist/apps/manage.js plugins/ZZZ-Plugin/dist/apps/monthly.js plugins/ZZZ-Plugin/dist/apps/remind.js plugins/ZZZ-Plugin/dist/apps/card.js plugins/ZZZ-Plugin/dist/apps/damage.js plugins/ZZZ-Plugin/dist/apps/panel.js plugins/ZZZ-Plugin/dist/apps/poolHistory.js
 docker restart $ContainerName | Out-Null
 Start-Sleep -Seconds 6
 
