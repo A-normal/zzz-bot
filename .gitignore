@@ -11,6 +11,7 @@
 # Sensitive credentials & runtime tokens
 config/Telegram.yaml
 config/QQBot.yaml
+config/aiChat.yaml
 *.key
 *.pem
 *.token

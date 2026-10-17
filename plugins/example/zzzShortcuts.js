@@ -1,4 +1,5 @@
 import plugin from "../../lib/plugins/plugin.js"
+import { parseMasterCommand } from "./aiChatCore.mjs"
 
 /**
  * 可选的指令前缀。
@@ -40,8 +41,31 @@ export class zzzShortcuts extends plugin {
   }
 
   async accept(e) {
+    // 给事件打"已回复"标记：兜底 AI 路由据此让位，避免别的插件 return false 后被重复回复
+    if (e && typeof e.reply === "function" && !e._replyWrapped) {
+      e._replyWrapped = true
+      const original = e.reply
+      e.reply = async function (...args) {
+        e._replied = true
+        return original.apply(e, args)
+      }
+    }
     if (!e.msg) return false
     const msg = e.msg.trim()
+
+    // 0.0 主人专用：/模型、/模型列表、/模型接口（交给 AI 模块，避免落入"未识别快捷指令"拦截）
+    const masterCmd = parseMasterCommand(msg)
+    if (masterCmd) {
+      try {
+        const { handleMasterCommand } = await import("./aiChatControl.mjs")
+        await handleMasterCommand(e, masterCmd.kind, masterCmd.arg)
+      } catch (err) {
+        logger.error("[AI] 主命令处理失败", err)
+        await e.reply("AI 模块未就绪，请检查 data/aiChat/config.yaml")
+      }
+      return "return"
+    }
+
     let target = null
 
     // 0. 帮助 / 菜单 / 功能 / 指令说明：/帮助, /help, /菜单, /功能, /指令, 帮助, help

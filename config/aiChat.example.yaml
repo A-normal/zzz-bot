@@ -1,0 +1,22 @@
+# AI 兜底对话配置示例模板
+# 实际运行文件位于容器内：/root/Yunzai/data/aiChat/config.yaml（本文件不含任何真实私有地址与密钥）
+# 真实 baseURL 与 apiKey 仅注入到运行容器内，严禁提交入版本库
+enabled: true
+allowPrivate: false
+percentHint: true
+groupWhitelist: []
+masterUserIds: []
+maxInputChars: 2000
+maxImages: 4
+maxReplyChars: 1800
+timeoutMs: 90000
+endpoints:
+  - name: "api"
+    baseURL: ""          # 实际私有 baseURL 仅写在容器内的 data/aiChat/config.yaml 中，不入版本库
+    apiKeyEnv: ""        # 若使用环境变量传入密钥，在此指定变量名
+    apiKey: ""           # 实际密钥只写在容器内的 data/aiChat/config.yaml，仓库模板保持空白
+    authHeader: ""       # 若存在前置 Basic 鉴权，填完整头值（例：Basic dXNlcjpwYXNz）
+    supportsVision: true
+    enableSearch: true   # 开启原生服务端 Google Search 联网搜索增强（自动识别是否需要搜索）
+    models: ["gemini-3.8-flash-high"]
+    defaultModel: "gemini-3.8-flash-high"
