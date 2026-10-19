@@ -517,14 +517,36 @@ test("sanitizeReply: 将 markdown 链接 [标题](http...) 转换为纯文本标
   assert.equal(sanitizeReply(input), "推荐查看 绝区零Wiki 了解详情")
 })
 
-test("sanitizeReply: 剥离 Vertex AI 搜索引文重定向长链接", () => {
-  const input = "来源引文：\n[1] [moegirl.org.cn](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHeRkZLd7DX)"
-  assert.equal(sanitizeReply(input), "来源引文：\n[1] moegirl.org.cn")
+test("sanitizeReply: 彻底切除末尾由 Google Grounding 生成的搜索元数据与引文区", () => {
+  const input = "今日天气晴朗。\n\n---\n**🔍 已为您搜索：** 今日天气\n\n**🌐 来源引文：**\n[1] [weather.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/...)\n[2] [sina.com](https://vertexaisearch.cloud.google.com/...)"
+  assert.equal(sanitizeReply(input), "今日天气晴朗。")
 })
 
-test("sanitizeReply: 将裸链接转换为纯域名，防止触发 QQBot toQRCode 切片与被动回复超限", () => {
+test("sanitizeReply: 将正文中的完整 URL 降级为脱敏域名（避免被 QQBot 识别为 URL）", () => {
   const input = "官方网址 https://zzz.mihoyo.com/index.html 请前往"
-  assert.equal(sanitizeReply(input), "官方网址 zzz.mihoyo.com 请前往")
+  assert.equal(sanitizeReply(input), "官方网址 zzz[.]mihoyo[.]com 请前往")
+})
+
+test("sanitizeReply: 将正文中的独立裸域名脱敏（如 bilibili.com -> bilibili[.]com）", () => {
+  const input = "可在 bilibili.com 或 taptap.cn 观看直播"
+  assert.equal(sanitizeReply(input), "可在 bilibili[.]com 或 taptap[.]cn 观看直播")
+})
+
+test("sanitizeReply: 真实群聊「菲欧妮材料」搜索回答经过净化后完全剔除引文与长链接", () => {
+  const input = `菲欧妮是火属性异常角色，培养所需材料如下：
+1. 异常认证章
+2. 引燃芯片
+
+---
+**🔍 已为您搜索：** "菲欧妮" 材料 绝区零
+
+**🌐 来源引文：**
+[1] [moegirl.org.cn](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQ...)
+[2] [biligame.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQ...)`
+  const expected = `菲欧妮是火属性异常角色，培养所需材料如下：
+1. 异常认证章
+2. 引燃芯片`
+  assert.equal(sanitizeReply(input), expected)
 })
 
 test("trimReply: 自动执行 sanitizeReply 并截断超长内容", () => {

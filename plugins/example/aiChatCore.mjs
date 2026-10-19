@@ -318,18 +318,39 @@ export function buildChatRequest(cfg, endpoint, model, text, images, apiKey) {
 
 /**
  * 清洗模型返回文本：
- * 1. 将 markdown 链接 [标题](http...) 转换为纯文本 "标题"，避免在 QQBot 等通道触发 URL 转二维码切片
- * 2. 剥离 Vertex AI / Google Grounding 的内部跳转长链接
- * 3. 将任何其余独立裸 URL 降级为纯域名文本（例如 https://bilibili.com/video/xxx -> bilibili.com），杜绝触发 IM 适配器的 toQRCode 规则与被动回复配额耗尽
- * 4. 规范多余换行
+ * 1. 彻底切除末尾由 Google Grounding 生成的搜索元数据与引文区（---、🔍 已为您搜索、🌐 来源引文、[1] 链接 等）
+ * 2. 将正文中的 Markdown 链接 [网站名称](http...) 转换为纯文本 "网站名称"
+ * 3. 将正文中残留的 http/https 完整 URL 降级为脱敏域名（如 https://wiki.biligame.com/zzz -> wiki[.]biligame[.]com）
+ * 4. 将正文中残留的独立裸域名（如 bilibili.com, miHoYo.com）脱敏为 bilibili[.]com，杜绝触发 QQBot url-regex-safe 导致生成二维码图片与超限报错
+ * 5. 清理多余分割线与空行
  */
 export function sanitizeReply(text) {
   if (typeof text !== "string") return ""
   let t = text
-  t = t.replace(/\[([^\]]+)\]\(https?:\/\/[^\)]+\)/g, "$1")
-  t = t.replace(/https?:\/\/vertexaisearch\.cloud\.google\.com[^\s\)]*/g, "")
-  t = t.replace(/https?:\/\/([^\s\/]+)(?:\/[^\s]*)?/g, "$1")
+
+  // 1. 彻底切除末尾由 Google Grounding 生成的搜索元数据与引文区
+  t = t.replace(/(?:\r?\n)?(?:---|___|\*\*\*)\s*(?:\r?\n)+(?:\*\*|__)?(?:🔍|🌐|已为您搜索|来源引文|参考来源|引用来源|Sources)[\s\S]*$/i, "")
+  t = t.replace(/(?:\r?\n)+(?:\*\*|__)?(?:🔍|🌐)?\s*(?:已为您搜索|来源引文|参考来源|引用来源|Sources)[：:][\s\S]*$/i, "")
+  t = t.replace(/(?:\r?\n)+\[\d+\]\s*(?:\[[^\]]+\]\()?https?:\/\/[^\s\)]+[\s\S]*$/i, "")
+  t = t.replace(/(?:\r?\n)+\[\d+\]\s*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[\s\S]*$/i, "")
+
+  // 2. 将正文中的 Markdown 链接 [网站名称](http...) 转换为纯文本 "网站名称"
+  t = t.replace(/\[([^\]]+)\]\(https?:\/\/[^\)]*\)/g, "$1")
+
+  // 3. 将正文中残留的 http/https 完整 URL 降级为 defanged 主机名（避免生硬截断，又杜绝被匹配为 URL）
+  t = t.replace(/https?:\/\/([a-zA-Z0-9-.]+)(?:\/[^\s\)]*)?/gi, (_m, host) => {
+    return host.replace(/\./g, "[.]")
+  })
+
+  // 4. 将正文中残留的独立裸域名（如 bilibili.com）脱敏为 bilibili[.]com
+  t = t.replace(/\b([a-zA-Z0-9-]+\.)+(com|cn|org|net|xyz|top|site|cc|gg|tv|io|moe|vip|ink|icu|info|biz|me|tw|hk|jp|edu|gov)\b/gi, (m) => {
+    return m.replace(/\./g, "[.]")
+  })
+
+  // 5. 清理多余分割线与空行
+  t = t.replace(/(?:---|___|\*\*\*)\s*$/g, "")
   t = t.replace(/\n{3,}/g, "\n\n").trim()
+
   return t
 }
 
