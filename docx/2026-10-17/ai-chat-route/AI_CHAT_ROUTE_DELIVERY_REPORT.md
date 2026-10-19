@@ -256,7 +256,39 @@ loader.js:124 为 lodash.orderBy(this.priority, ["priority"], ["asc"])——**�
    - 普通游戏机制（安东介绍）：✅ 6.3s，快速作答；
    - 图片多模态：✅ 4.5s，多模态与搜索工具完美共存。
 
-## 13. 子代理执行情况（如实记录）
+## 13. 线上缺陷排查与独立修复：QQBot 搜索引文多图切片与被动回复超限 (40034128)
+
+### 13.1 故障现象与日志现场分析
+在群聊真实提问「现在你认识菲欧妮吗？」时，观察到如下异常行为与日志报错：
+```log
+[09:32:10.954][INFO] [1904107636] 群消息：[...:37612CA3FA108781BEAE1732B615313A, ...]  现在你认识菲欧妮吗？
+[09:32:24.032][MARK] [AIChat] group:... gemini-3.8-flash-high 13068ms 0img
+[09:32:26.755][INFO] send to Group(...): <reply,...><image:e646324e...>
+[09:32:29.084][INFO] send to Group(...): <reply,...><image:19c9dd68...>
+[09:32:31.509][INFO] send to Group(...): <reply,...><image:20b35e0f...>
+[09:32:33.828][INFO] send to Group(...): <reply,...><image:c66966b1...>
+[09:32:36.851][INFO] send to Group(...): <reply,...><image:283318d6...>
+[09:32:37.980][ERRO] 发送消息错误: request "/v2/groups/.../messages" error with code(40034128): 回复消息失败，被动回复时间或者次数超过限制
+```
+
+### 13.2 根因定位 (Root Cause)
+1. **QQ 机器人防刷屏机制**：腾讯 QQ 官方开放平台对同一个被动事件（Inbound Event `msg_id`）设有单次交互上限：**被动回复最多允许发送 5 条消息**；
+2. **QQBot 适配器 URL 自动转二维码机制**：`config/QQBot.yaml` 配置了 `toQRCode: true`。QQBot 适配器（`QQBot-Plugin/index.js`）的 `makeMsg` 会使用正则扫描消息中的全部 URL，将每个 URL 独立转化为一张二维码图片 (`segment.image`)，并将单条消息拆解切片为多个独立分段连续发送；
+3. **Google Grounding 引入多条重定向引文**：当模型开启 `googleSearch` 联网并检索出菲欧妮情报后，会在末尾追加 6~7 条 Vertex AI 的跳转链接（如 `[moegirl.org.cn](https://vertexaisearch.cloud.google.com/...)`）；
+4. **级联故障**：6~7 个 URL 被 QQBot-Plugin 转换成了 6~7 张二维码图片并试图分批发送。前 5 张发送成功后，第 6 张触发了 QQ 官方接口的 `code(40034128): 回复消息失败，被动回复时间或者次数超过限制` 报错，导致群内被连续刷出多张二维码且后半段被截断报错。
+
+### 13.3 修复方案与代码变更
+在纯逻辑模块 `plugins/example/aiChatCore.mjs` 中实现 `sanitizeReply`：
+1. **Markdown 链接净化**：将 `[网站名称](https://...)` 转换为纯文本 `网站名称`；
+2. **Vertex AI 跳转剥离**：彻底剔除 Google Grounding 的内部长跳转链接；
+3. **裸 URL 域名降级**：将任何其余的裸网址（如 `https://miyoushe.com/zzz`）去除协议前缀转为纯文本域名（`miyoushe.com`），彻底避免触发 IM 适配器的 `toQRCode` 切片逻辑；
+4. **提示词防御**：在 `systemPrompt` 中明确约束“回答使用纯文本排版，切勿在回复中输出长链接或引文跳转网址，来源只需列出网站名称即可”。
+
+### 13.4 线上容器与单测验证
+- **单元测试**：`tests/ai-chat-core.test.mjs` 新增 4 项专属测试，49 项单测全部通过；
+- **线上实测**：容器热重载后实测提问「现在你认识菲欧妮吗？」，模型在 10.8s 内完成联网搜索与总结，清洗后回复为**单条整洁纯文本**，引文列出 `[1] moegirl.org.cn` 等纯域名，**URL 数量为 0，二维码图片数量为 0，单条消息即完整交付，彻底消除 40034128 超限报错**。
+
+## 14. 子代理执行情况（如实记录）
 
 本次将 `AI_CHAT_ROUTE_IMPLEMENTATION_SPEC.md` + 验收测试交给子代理（小闪）独立实现，**其回报为空，工作区内 0 个文件产出，测试从未运行**。上述代码与验证由主代理完成。
 

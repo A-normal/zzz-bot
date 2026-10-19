@@ -21,6 +21,7 @@ import {
   trimReply,
   extractContent,
   sniffMime,
+  sanitizeReply,
 } from "../plugins/example/aiChatCore.mjs"
 
 /* ------------------------------------------------------------------ */
@@ -509,4 +510,24 @@ test("buildChatRequest: enableSearch 缺省或为 false 时不包含 tools", () 
   const ep = { ...c.endpoints[0], enableSearch: false }
   const { body } = buildChatRequest(c, ep, "m1", "hi", [], "key")
   assert.equal(body.tools, undefined)
+})
+
+test("sanitizeReply: 将 markdown 链接 [标题](http...) 转换为纯文本标题", () => {
+  const input = "推荐查看 [绝区零Wiki](https://wiki.biligame.com/zzz) 了解详情"
+  assert.equal(sanitizeReply(input), "推荐查看 绝区零Wiki 了解详情")
+})
+
+test("sanitizeReply: 剥离 Vertex AI 搜索引文重定向长链接", () => {
+  const input = "来源引文：\n[1] [moegirl.org.cn](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHeRkZLd7DX)"
+  assert.equal(sanitizeReply(input), "来源引文：\n[1] moegirl.org.cn")
+})
+
+test("sanitizeReply: 将裸链接转换为纯域名，防止触发 QQBot toQRCode 切片与被动回复超限", () => {
+  const input = "官方网址 https://zzz.mihoyo.com/index.html 请前往"
+  assert.equal(sanitizeReply(input), "官方网址 zzz.mihoyo.com 请前往")
+})
+
+test("trimReply: 自动执行 sanitizeReply 并截断超长内容", () => {
+  const input = "阅读 [米游社](https://miyoushe.com/zzz) 获取资讯"
+  assert.equal(trimReply(input, 50), "阅读 米游社 获取资讯")
 })
