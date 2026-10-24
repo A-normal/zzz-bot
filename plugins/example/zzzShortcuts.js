@@ -8,10 +8,12 @@ import { parseMasterCommand } from "./aiChatCore.mjs"
  *   - 半角斜杠  /便签   （QQ 快捷指令原始输入）
  *   - 半角井号  #便签   （云崽内核 dealText 会把行首 / 改写成 #）
  *   - 全角井号  ＃便签
+ *   - 半角百分号 %便签
+ *   - 全角百分号 ％便签
  * 原因：lib/plugins/loader.js 的 dealText() 在 accept() 之前就把行首 "/" 改写为 "#"，
  * 因此 accept() 里永远看不到 "/"，必须把 "#" 也纳入匹配。
  */
-const P = "[\\/#＃]?"
+const P = "[\\/#＃%％]?"
 
 export class zzzShortcuts extends plugin {
   constructor() {
@@ -88,7 +90,20 @@ export class zzzShortcuts extends plugin {
       target = "#绝区零便签"
     }
 
-    // 4.1 刷新面板：/更新面板, /刷新面板, 更新面板, 刷新面板 (未登录展柜 / 登录默认全角色)
+    // 4.0 更新展柜：/更新展柜, /刷新展柜, 更新展柜, 刷新展柜, /更新展柜面板, 更新展柜面板
+    else if (new RegExp(`^${P}(更新展柜|刷新展柜|展柜更新|展柜刷新|更新展柜面板)$`, "i").test(msg)) {
+      const isSlash = this.isSlashInput(e)
+      const isBareWord = /^(更新展柜|刷新展柜|展柜更新|展柜刷新|更新展柜面板)/.test(msg)
+      if (isSlash || isBareWord) target = "#绝区零更新展柜"
+    }
+
+    // 4.1 单角色更新面板：/更新面板 艾莲, 更新面板 艾莲, /刷新面板 简
+    else if (new RegExp(`^${P}(更新面板|刷新面板)\\s+(.+)$`, "i").test(msg)) {
+      const role = msg.match(new RegExp(`^${P}(更新面板|刷新面板)\\s+(.+)$`, "i"))[2].trim()
+      target = `#绝区零更新面板 ${role}`
+    }
+
+    // 4.2 全量更新面板：/更新面板, /刷新面板, 更新面板, 刷新面板
     //     规避原神 miao-plugin 抢占 "#更新面板"
     else if (new RegExp(`^${P}(更新面板|刷新面板|全角色面板)$`, "i").test(msg)) {
       const isSlash = this.isSlashInput(e)
@@ -96,7 +111,7 @@ export class zzzShortcuts extends plugin {
       if (isSlash || isBareWord) target = "#绝区零更新面板"
     }
 
-    // 4.2 查看面板：/面板, /面板列表, 面板, 面板列表
+    // 4.3 查看面板：/面板, /面板列表, 面板, 面板列表
     //     消歧策略：只有确认为【斜杠快捷指令】或【完全无前缀的纯词】时才映射为绝区零，
     //     原生 "#面板" / "#面板列表"（原神）保持不动，避免抢占原神面板。
     else if (new RegExp(`^${P}面板(列表)?$`, "i").test(msg)) {
@@ -105,7 +120,7 @@ export class zzzShortcuts extends plugin {
       if (isSlash || isBareWord) target = "#绝区零面板列表"
     }
 
-    // 4.3 单角色面板：/面板 简, 面板 简
+    // 4.4 单角色面板查询：/面板 简, 面板 简
     else if (new RegExp(`^${P}面板\\s+(.+)$`, "i").test(msg)) {
       const role = msg.match(new RegExp(`^${P}面板\\s+(.+)$`, "i"))[1].trim()
       target = `#绝区零${role}面板`
@@ -140,13 +155,38 @@ export class zzzShortcuts extends plugin {
       target = "#绝区零关闭自动签到"
     }
 
+    // 8. 迷宫诡域 / 贝果计划（搜打撤）
+    // 8.1 战绩详情（优先匹配战绩/详情长词）：/贝果战绩, /更新贝果战绩, 贝果计划战绩, /迷宫战绩
+    else if (new RegExp(`^${P}(更新|刷新)?(贝果|贝果计划|迷宫|迷宫诡域|搜打撤|绝科夫)(战绩|记录|详情|回顾)$`, "i").test(msg)) {
+      target = "#绝区零贝果战绩"
+    }
+    // 8.2 迷宫总览：/贝果, /贝果计划, /更新贝果, 贝果, /迷宫, 搜打撤
+    else if (new RegExp(`^${P}(更新|刷新)?(贝果|贝果计划|迷宫|迷宫诡域|搜打撤|绝科夫)$`, "i").test(msg)) {
+      target = "#绝区零贝果"
+    }
+
+    // 9. 兑换码 / code：/兑换码, /code, 兑换码, code, %兑换码, #兑换码
+    else if (new RegExp(`^${P}(code|兑换码|前瞻兑换码|直播兑换码)$`, "i").test(msg)) {
+      target = "#绝区零兑换码"
+    }
+
+    // 10. 日历 / cal：/日历, /cal, 日历, cal, %日历
+    else if (new RegExp(`^${P}(cal|日历|活动日历)$`, "i").test(msg)) {
+      target = "#绝区零日历"
+    }
+
+    // 11. 月报 / 菲林统计：/月报, 月报, %月报, /菲林, 菲林
+    else if (new RegExp(`^${P}(?:(\\d{4})年)?(?:(\\d{1,2}|上)月)?(monthly|菲林|邦布券|收入|月报)(?:(\\d{4})年)?(?:(\\d{1,2}|上)月)?(统计)?$`, "i").test(msg)) {
+      target = `#绝区零${msg.replace(new RegExp(`^${P}`), "")}`
+    }
+
     if (target) {
       e.msg = target
       if (target.startsWith("#绝区零")) e.game = "zzz"
       return false
     }
 
-    // 8. 非法 / 未识别快捷指令统一拦截并报错，彻底防止错误指令穿透至原神等其他模块
+    // 9. 非法 / 未识别快捷指令统一拦截并报错，彻底防止错误指令穿透至原神等其他模块
     if (this.isSlashInput(e)) {
       const raw = typeof e.raw_message === "string" && e.raw_message ? e.raw_message : (e.original_msg || e.msg || "")
       const cleaned = raw.replace(/<@!?\d+>/g, "").replace(/\[CQ:[^\]]*\]/g, "").trim()

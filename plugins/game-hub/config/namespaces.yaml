@@ -1,0 +1,41 @@
+# ==============================================================================
+# Game-Hub 部署人员命名空间配置文件 (Deployer Namespaces Configuration)
+# 
+# 规则说明：
+# 1. prefix: 部署人员定义的触发符号（如 "*", "/", "%"），游戏插件源码不需要包含此符号
+# 2. aliases: 额外的别名触发词（如 "zzz", "绝区零", "鸣潮"）
+# 3. priority: 路由判定优先级权重（数字越大越先判定）
+# 4. allow_bare_keywords: 是否允许在群内直接发送纯指令词元（如直接发送 "便签"）
+# ==============================================================================
+
+namespaces:
+  # 绝区零配置
+  zzz:
+    prefix: "*"
+    aliases:
+      - "zzz"
+      - "ZZZ"
+      - "绝区零"
+    priority: 100
+    allow_bare_keywords: false
+
+  # 崩坏：星穹铁道配置（按需开启）
+  hsr:
+    prefix: "*"
+    aliases:
+      - "hsr"
+      - "HSR"
+      - "星铁"
+      - "崩铁"
+    priority: 90
+    allow_bare_keywords: false
+
+  # 鸣潮配置（支持跨厂商独立社区扩展）
+  wuwa:
+    prefix: "/"
+    aliases:
+      - "wuwa"
+      - "鸣潮"
+      - "mc"
+    priority: 80
+    allow_bare_keywords: false
